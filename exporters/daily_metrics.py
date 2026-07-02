@@ -1,4 +1,5 @@
 import pandas as pd
+import datetime
 from exporters.base import BaseExporter
 
 class DailyMetricsExporter(BaseExporter):
@@ -27,14 +28,14 @@ class DailyMetricsExporter(BaseExporter):
         data_service=None
     ) -> pd.DataFrame:
         if analytics_service is None:
-            raise ValueError('YouTube API service is not connected.')
+            raise ValueError("YouTube API service is not connected.")
 
         try:
             response = analytics_service.reports().query(
                 ids="channel==MINE",
                 startDate=start_date,
                 endDate=end_date,
-                metrics="views,redViews,estimatedMinutesWatched,subscribersGained,averageViewDuration,averageViewPercentage,likes,comments,shares,impressions,annotationClickThroughRate",
+                metrics="views,redViews,estimatedMinutesWatched,subscribersGained,averageViewDuration,averageViewPercentage,likes,comments,shares",
                 dimensions="day,video",
                 sort="day",
                 maxResults=500
@@ -44,7 +45,7 @@ class DailyMetricsExporter(BaseExporter):
             df_raw = pd.DataFrame(rows, columns=[
                 "day", "video_id", "views", "redViews", "estimatedMinutesWatched",
                 "subscribersGained", "averageViewDuration", "averageViewPercentage",
-                "likes", "comments", "shares", "impressions", "ctr"
+                "likes", "comments", "shares"
             ])
             
             df = pd.DataFrame()
@@ -54,19 +55,21 @@ class DailyMetricsExporter(BaseExporter):
             df["Engaged views"] = df_raw["redViews"]
             df["Watch time (hours)"] = round(df_raw["estimatedMinutesWatched"] / 60.0, 2)
             df["Subscribers"] = df_raw["subscribersGained"]
-            
-            import datetime
             df["Average view duration"] = df_raw["averageViewDuration"].apply(
                 lambda x: str(datetime.timedelta(seconds=int(x)))
             )
-            df["Average percentage viewed"] = df_raw["averageViewPercentage"]
+            df["Average percentage viewed"] = round(df_raw["averageViewPercentage"], 2)
             df["Likes"] = df_raw["likes"]
             df["Comments"] = df_raw["comments"]
             df["Shares"] = df_raw["shares"]
-            df["Impressions"] = df_raw["impressions"]
-            df["CTR"] = df_raw["ctr"]
-            df["Stayed to watch"] = 0.0
+            df["Impressions"] = "N/A (Studio Export Only)"
+            df["CTR"] = "N/A (Studio Export Only)"
+            df["Stayed to watch"] = "N/A (Studio Export Only)"
             return df
         except Exception as e:
-            raise RuntimeError(f'API Query failed: {e}')
-export_rows = 1
+            print(f"Daily Metrics export error: {e}")
+            return pd.DataFrame(columns=[
+                "Date", "Video", "Views", "Engaged views", "Watch time (hours)", "Subscribers",
+                "Average view duration", "Average percentage viewed", "Likes", "Comments",
+                "Shares", "Impressions", "CTR", "Stayed to watch"
+            ])

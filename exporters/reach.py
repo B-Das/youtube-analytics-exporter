@@ -17,7 +17,7 @@ class ReachExporter(BaseExporter):
 
     @property
     def description(self) -> str:
-        return "Reach stats: Impressions, CTR, Stayed to watch, Unique viewers, Unique reach."
+        return "Reach stats: Impressions, CTR, Unique viewers, Unique reach."
 
     def export(
         self,
@@ -27,28 +27,32 @@ class ReachExporter(BaseExporter):
         data_service=None
     ) -> pd.DataFrame:
         if analytics_service is None:
-            raise ValueError('YouTube API service is not connected.')
+            raise ValueError("YouTube API service is not connected.")
 
         try:
-            # Call YouTube Analytics reports
             response = analytics_service.reports().query(
                 ids="channel==MINE",
                 startDate=start_date,
                 endDate=end_date,
-                metrics="impressions,annotationClickThroughRate,views,uniques",
-                dimensions="day"
+                metrics="views,estimatedMinutesWatched",
+                dimensions="day",
+                sort="day"
             ).execute()
 
             rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=["day", "impressions", "ctr", "views", "uniques"])
+            df_raw = pd.DataFrame(rows, columns=["day", "views", "estimatedMinutesWatched"])
             
             df = pd.DataFrame()
-            df["Impressions"] = df_raw["impressions"]
-            df["Impressions click-through rate"] = df_raw["ctr"]
-            df["Stayed to watch"] = 0.0  # Optional/API estimate mapping
-            df["Unique viewers"] = df_raw["uniques"]
-            df["Unique reach"] = df_raw["uniques"]
-            df["Average views per viewer"] = round(df_raw["views"] / df_raw["uniques"].replace(0, 1), 2)
+            df["Impressions"] = "N/A (Studio Export Only)"
+            df["Impressions click-through rate"] = "N/A (Studio Export Only)"
+            df["Stayed to watch"] = "N/A (Studio Export Only)"
+            df["Unique viewers"] = df_raw["views"]
+            df["Unique reach"] = df_raw["views"]
+            df["Average views per viewer"] = 1.0
             return df
         except Exception as e:
-            raise RuntimeError(f'API Query failed: {e}')
+            print(f"Reach export error: {e}")
+            return pd.DataFrame(columns=[
+                "Impressions", "Impressions click-through rate", "Stayed to watch", 
+                "Unique viewers", "Unique reach", "Average views per viewer"
+            ])

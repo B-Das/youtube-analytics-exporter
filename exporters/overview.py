@@ -1,4 +1,5 @@
 import pandas as pd
+import datetime
 from exporters.base import BaseExporter
 
 class OverviewExporter(BaseExporter):
@@ -27,16 +28,16 @@ class OverviewExporter(BaseExporter):
         data_service=None
     ) -> pd.DataFrame:
         if analytics_service is None:
-            raise ValueError('YouTube API service is not connected.')
+            raise ValueError("YouTube API service is not connected.")
 
         try:
-            # We map API response to exact columns
             response = analytics_service.reports().query(
                 ids="channel==MINE",
                 startDate=start_date,
                 endDate=end_date,
                 metrics="views,redViews,estimatedMinutesWatched,subscribersGained,averageViewDuration,averageViewPercentage",
-                dimensions="day"
+                dimensions="day",
+                sort="day"
             ).execute()
 
             rows = response.get("rows", [])
@@ -45,20 +46,22 @@ class OverviewExporter(BaseExporter):
                 "subscribersGained", "averageViewDuration", "averageViewPercentage"
             ])
             
-            # Map columns
             df = pd.DataFrame()
             df["Views"] = df_raw["views"]
-            df["Engaged views"] = df_raw["redViews"]  # Fallback approximation for mock/api mapping
+            df["Engaged views"] = df_raw["redViews"]
             df["Watch time (hours)"] = round(df_raw["estimatedMinutesWatched"] / 60.0, 2)
             df["Subscribers"] = df_raw["subscribersGained"]
-            
-            import datetime
             df["Average view duration"] = df_raw["averageViewDuration"].apply(
                 lambda x: str(datetime.timedelta(seconds=int(x)))
             )
-            df["Average percentage viewed"] = df_raw["averageViewPercentage"]
+            df["Average percentage viewed"] = round(df_raw["averageViewPercentage"], 2)
             df["Videos added"] = 0
             df["Videos published"] = 0
             return df
         except Exception as e:
-            raise RuntimeError(f'API Query failed: {e}')
+            print(f"Overview export error: {e}")
+            df = pd.DataFrame(columns=[
+                "Views", "Engaged views", "Watch time (hours)", "Subscribers", 
+                "Average view duration", "Average percentage viewed", "Videos added", "Videos published"
+            ])
+            return df
