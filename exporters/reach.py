@@ -1,6 +1,5 @@
 import pandas as pd
 from exporters.base import BaseExporter
-from mock_data_generator import MockDataGenerator
 
 class ReachExporter(BaseExporter):
 
@@ -25,11 +24,10 @@ class ReachExporter(BaseExporter):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None,
-        use_mock: bool = True
+        data_service=None
     ) -> pd.DataFrame:
-        if use_mock or analytics_service is None:
-            return MockDataGenerator.generate_reach(start_date, end_date)
+        if analytics_service is None:
+            raise ValueError('YouTube API service is not connected.')
 
         try:
             # Call YouTube Analytics reports
@@ -52,5 +50,5 @@ class ReachExporter(BaseExporter):
             df["Unique reach"] = df_raw["uniques"]
             df["Average views per viewer"] = round(df_raw["views"] / df_raw["uniques"].replace(0, 1), 2)
             return df
-        except Exception:
-            return MockDataGenerator.generate_reach(start_date, end_date)
+        except Exception as e:
+            raise RuntimeError(f'API Query failed: {e}')

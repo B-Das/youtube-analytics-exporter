@@ -1,4 +1,4 @@
-# ⚡ Historic Heights — One-Click YouTube Analytics Export Tool
+# ⚡ One-Click YouTube Analytics Export Tool
 
 A fast, lightweight, and completely modular YouTube Analytics Export Tool. Replaces manual YouTube Studio export steps with an automated, single-click ZIP downloader containing all relevant CSV report files and a structured `metadata.json`.
 

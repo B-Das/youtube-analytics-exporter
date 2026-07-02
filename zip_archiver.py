@@ -13,7 +13,6 @@ def build_analytics_zip(
     channel_name: str = "HistoricHeights",
     analytics_service=None,
     data_service=None,
-    use_mock: bool = True,
     progress_callback=None
 ) -> Tuple[bytes, dict]:
     """
@@ -34,8 +33,7 @@ def build_analytics_zip(
                     start_date=start_date,
                     end_date=end_date,
                     analytics_service=analytics_service,
-                    data_service=data_service,
-                    use_mock=use_mock
+                    data_service=data_service
                 )
                 
                 csv_bytes = df.to_csv(index=False).encode('utf-8')

@@ -14,13 +14,25 @@ def run_daily_export():
 
     print(f"[{datetime.now().isoformat()}] Starting automated 9 PM YouTube Analytics Export...")
 
+    from youtube_auth import YouTubeAuthHandler
+    analytics_service, data_service, is_authenticated = YouTubeAuthHandler.get_services()
+    
+    if not is_authenticated:
+        print(f"[{datetime.now().isoformat()}] [ERROR] YouTube API credentials not found. Please log in first via app.py.")
+        sys.exit(1)
+
+    # Fetch dynamic channel info if possible
+    channel_info = YouTubeAuthHandler.get_channel_info(data_service)
+    channel_name = channel_info['title'].replace(" ", "") if channel_info else "HistoricHeights"
+
     all_exporters = get_all_exporters()
     zip_bytes, stats = build_analytics_zip(
         selected_exporters=all_exporters,
         start_date=yesterday_str,
         end_date=today_dash_str,
-        channel_name="HistoricHeights",
-        use_mock=True  # Will use API if token.pickle exists
+        channel_name=channel_name,
+        analytics_service=analytics_service,
+        data_service=data_service
     )
 
     out_zip_path = os.path.join(export_dir, f"youtube_daily_{today_str}.zip")

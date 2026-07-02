@@ -1,13 +1,13 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
-from exporters.registry import get_all_exporters, get_exporter_by_id
+from exporters.registry import get_all_exporters
 from zip_archiver import build_analytics_zip
 from youtube_auth import YouTubeAuthHandler
 
 # Streamlit Page Configuration
 st.set_page_config(
-    page_title="Historic Heights - One-Click Analytics Exporter",
+    page_title="YouTube Studio Analytics Exporter",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -95,111 +95,97 @@ channel_info = None
 if is_authenticated:
     channel_info = YouTubeAuthHandler.get_channel_info(data_service)
 
-# Session States
-if "use_mock" not in st.session_state:
-    st.session_state.use_mock = True
+# Initialize Session States
 if "date_start" not in st.session_state:
     st.session_state.date_start = (datetime.now() - timedelta(days=28)).date()
 if "date_end" not in st.session_state:
     st.session_state.date_end = datetime.now().date()
+if "oauth_thread_started" not in st.session_state:
+    st.session_state.oauth_thread_started = False
 
-# Header
-channel_title_header = channel_info['title'] if (is_authenticated and channel_info) else "Historic Heights"
-st.markdown(f"""
-<div class="main-header">
-    <div class="brand-title">⚡ {channel_title_header} — One-Click Analytics Exporter (V1)</div>
-    <div class="brand-subtitle">Download clean raw report packages matching YouTube Studio exactly. No renaming, no calculated columns.</div>
-</div>
-""", unsafe_allow_html=True)
-
-# Sidebar
+# Sidebar Configuration
 with st.sidebar:
     st.header("🔑 Authentication")
     
-    # Auto-adjust selection state if authenticated
-    mode_index = 1 if is_authenticated else 0
-    
-    mode_option = st.radio(
-        "Data Source Mode:",
-        ["Mock Data (Historic Heights)", "Live YouTube Analytics API"],
-        index=mode_index
-    )
-    st.session_state.use_mock = "Mock Data" in mode_option
-    
-    channel_name = "HistoricHeights"
-    if st.session_state.use_mock:
-        st.success("🟢 Active Mode: Mock Data")
-    else:
-        st.warning("🟡 Active Mode: Live YouTube API")
-        if is_authenticated:
-            if channel_info:
-                st.markdown(f"""
-                <div style="background-color: #1e293b; border: 1px solid #0284c7; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
-                    <img src="{channel_info['thumbnail']}" style="border-radius: 50%; width: 44px; height: 44px; border: 2px solid #38bdf8;" />
-                    <div>
-                        <div style="font-weight: bold; color: #f8fafc; font-size: 0.9rem; line-height: 1.2;">{channel_info['title']}</div>
-                        <div style="color: #38bdf8; font-size: 0.8rem; font-weight: 500; margin-top: 2px;">🟢 Connected</div>
-                        <div style="color: #94a3b8; font-size: 0.75rem;">{int(channel_info['subscribers']):,} subscribers</div>
-                    </div>
+    if is_authenticated:
+        if channel_info:
+            st.markdown(f"""
+            <div style="background-color: #1e293b; border: 1px solid #0284c7; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
+                <img src="{channel_info['thumbnail']}" style="border-radius: 50%; width: 44px; height: 44px; border: 2px solid #38bdf8;" />
+                <div>
+                    <div style="font-weight: bold; color: #f8fafc; font-size: 0.9rem; line-height: 1.2;">{channel_info['title']}</div>
+                    <div style="color: #38bdf8; font-size: 0.8rem; font-weight: 500; margin-top: 2px;">🟢 Connected</div>
+                    <div style="color: #94a3b8; font-size: 0.75rem;">{int(channel_info['subscribers']):,} subscribers</div>
                 </div>
-                """, unsafe_allow_html=True)
-                channel_name = channel_info['title'].replace(" ", "")
-            else:
-                st.success("🟢 Authenticated Successfully!")
-                channel_name = "YouTubeChannel"
-            
-            if st.button("🚪 Log Out", use_container_width=True):
-                import os
-                if os.path.exists(YouTubeAuthHandler.TOKEN_FILE):
-                    os.remove(YouTubeAuthHandler.TOKEN_FILE)
-                st.rerun()
+            </div>
+            """, unsafe_allow_html=True)
+            channel_name = channel_info['title'].replace(" ", "")
         else:
-            if YouTubeAuthHandler.is_client_secrets_present():
-                # Check if we are currently authenticating
-                if "oauth_thread_started" not in st.session_state:
-                    st.session_state.oauth_thread_started = False
-
-                if not st.session_state.oauth_thread_started:
-                    if st.button("🔑 Log in with Google", use_container_width=True):
-                        import threading
-                        
-                        def run_bg_flow():
-                            try:
-                                flow = YouTubeAuthHandler.create_oauth_flow()
-                                # Google Desktop client allows dynamic ports on localhost
-                                creds = flow.run_local_server(port=0, open_browser=True)
-                                YouTubeAuthHandler.save_credentials(creds)
-                            except Exception as e:
-                                st.session_state.auth_error = str(e)
-                            finally:
-                                st.session_state.oauth_thread_started = False
-                        
-                        st.session_state.oauth_thread_started = True
-                        st.session_state.auth_error = None
-                        
-                        # Start background thread
-                        t = threading.Thread(target=run_bg_flow)
-                        t.daemon = True
-                        t.start()
-                        st.rerun()
-                else:
-                    st.info("🌐 Browser tab opened for Google Login...")
-                    st.markdown("Please complete the authorization in your browser.")
-                    if st.button("🔄 Complete Connection", use_container_width=True):
-                        st.rerun()
-                    if st.session_state.get("auth_error"):
-                        st.error(f"Error: {st.session_state.auth_error}")
-                        st.session_state.oauth_thread_started = False
+            st.success("🟢 Authenticated Successfully!")
+            channel_name = "YouTubeChannel"
+        
+        if st.button("🚪 Log Out", use_container_width=True):
+            import os
+            if os.path.exists(YouTubeAuthHandler.TOKEN_FILE):
+                os.remove(YouTubeAuthHandler.TOKEN_FILE)
+            st.rerun()
+    else:
+        st.warning("🔴 Not Connected to YouTube")
+        channel_name = "YouTubeChannel"
+        
+        if YouTubeAuthHandler.is_client_secrets_present():
+            if not st.session_state.oauth_thread_started:
+                if st.button("🔑 Log in with Google", use_container_width=True):
+                    import threading
+                    
+                    def run_bg_flow():
+                        try:
+                            flow = YouTubeAuthHandler.create_oauth_flow()
+                            creds = flow.run_local_server(port=0, open_browser=True)
+                            YouTubeAuthHandler.save_credentials(creds)
+                        except Exception as e:
+                            st.session_state.auth_error = str(e)
+                        finally:
+                            st.session_state.oauth_thread_started = False
+                    
+                    st.session_state.oauth_thread_started = True
+                    st.session_state.auth_error = None
+                    
+                    t = threading.Thread(target=run_bg_flow)
+                    t.daemon = True
+                    t.start()
+                    st.rerun()
             else:
-                st.error("Missing `client_secrets.json`. Fallback to Mock Data.")
-                st.session_state.use_mock = True
+                st.info("🌐 Browser tab opened for Google Login...")
+                st.markdown("Please complete the authorization in your browser.")
+                if st.button("🔄 Complete Connection", use_container_width=True):
+                    st.rerun()
+                if st.session_state.get("auth_error"):
+                    st.error(f"Error: {st.session_state.auth_error}")
+                    st.session_state.oauth_thread_started = False
+        else:
+            st.error("Missing `client_secrets.json` in project directory.")
 
     st.divider()
     st.markdown("### 📜 Rules Applied")
     st.info("✓ Exact YouTube Studio headers\n\n✓ YouTube Studio column ordering\n\n✓ Zero custom calculated metrics")
 
+# Header Rendering
+channel_title_header = channel_info['title'] if (is_authenticated and channel_info) else "YouTube Analytics"
+st.markdown(f"""
+<div class="main-header">
+    <div class="brand-title">⚡ {channel_title_header} — One-Click Exporter (V1)</div>
+    <div class="brand-subtitle">Download clean raw report packages matching YouTube Studio exactly. No renaming, no calculated columns.</div>
+</div>
+""", unsafe_allow_html=True)
 
-# Preset buttons
+# Authentication Guard
+if not is_authenticated:
+    st.info("👋 Welcome! Please log in with your Google account in the sidebar to access your channel's export dashboard.")
+    st.stop()
+
+# ----------------- Main Dashboard -----------------
+
 st.subheader("📅 1. Select Date Range")
 col_p1, col_p2, col_p3, col_p4, col_p5, col_p6, col_p7, col_p8 = st.columns(8)
 today = datetime.now().date()
@@ -303,7 +289,8 @@ with col_act1:
             start_date=str_start,
             end_date=str_end,
             channel_name=channel_name,
-            use_mock=st.session_state.use_mock,
+            analytics_service=analytics_service,
+            data_service=data_service,
             progress_callback=progress_update_callback
         )
         progress_placeholder.success("✔ Overview ✔ Content ✔ Reach ✔ Audience ✔ Daily Metrics ✔ ZIP Packaged!")
@@ -325,7 +312,8 @@ with col_act2:
                 start_date=str_start,
                 end_date=str_end,
                 channel_name=channel_name,
-                use_mock=st.session_state.use_mock,
+                analytics_service=analytics_service,
+                data_service=data_service,
                 progress_callback=progress_update_callback
             )
             progress_placeholder.success(f"✔ Selected {len(selected_exporters)} reports packaged successfully!")
@@ -345,9 +333,13 @@ if selected_exporters:
     tabs = st.tabs([e.name for e in selected_exporters])
     for idx, exp in enumerate(selected_exporters):
         with tabs[idx]:
-            df_preview = exp.export(
-                start_date=str_start,
-                end_date=str_end,
-                use_mock=st.session_state.use_mock
-            )
-            st.dataframe(df_preview, use_container_width=True)
+            try:
+                df_preview = exp.export(
+                    start_date=str_start,
+                    end_date=str_end,
+                    analytics_service=analytics_service,
+                    data_service=data_service
+                )
+                st.dataframe(df_preview, use_container_width=True)
+            except Exception as e:
+                st.error(f"Failed to query {exp.name}: {e}")

@@ -1,6 +1,5 @@
 import pandas as pd
 from exporters.base import BaseExporter
-from mock_data_generator import MockDataGenerator
 
 class TrafficExporter(BaseExporter):
 
@@ -25,11 +24,10 @@ class TrafficExporter(BaseExporter):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None,
-        use_mock: bool = True
+        data_service=None
     ) -> pd.DataFrame:
-        if use_mock or analytics_service is None:
-            return MockDataGenerator.generate_traffic(start_date, end_date)
+        if analytics_service is None:
+            raise ValueError('YouTube API service is not connected.')
 
         try:
             response = analytics_service.reports().query(
@@ -54,5 +52,5 @@ class TrafficExporter(BaseExporter):
                 lambda x: str(datetime.timedelta(seconds=int(x)))
             )
             return df
-        except Exception:
-            return MockDataGenerator.generate_traffic(start_date, end_date)
+        except Exception as e:
+            raise RuntimeError(f'API Query failed: {e}')

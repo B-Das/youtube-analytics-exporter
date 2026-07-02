@@ -38,8 +38,7 @@ class BaseExporter(ABC):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None,
-        use_mock: bool = True
+        data_service=None
     ) -> pd.DataFrame:
         """
         Executes data retrieval and returns a pandas DataFrame.
@@ -48,7 +47,6 @@ class BaseExporter(ABC):
         :param end_date: YYYY-MM-DD string
         :param analytics_service: YouTube Analytics API service resource (optional)
         :param data_service: YouTube Data API v3 service resource (optional)
-        :param use_mock: If True or if services are None, generate mock data.
         """
         pass
 

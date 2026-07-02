@@ -1,6 +1,5 @@
 import pandas as pd
 from exporters.base import BaseExporter
-from mock_data_generator import MockDataGenerator
 
 class ContentExporter(BaseExporter):
 
@@ -25,11 +24,10 @@ class ContentExporter(BaseExporter):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None,
-        use_mock: bool = True
+        data_service=None
     ) -> pd.DataFrame:
-        if use_mock or analytics_service is None:
-            return MockDataGenerator.generate_content(start_date, end_date)
+        if analytics_service is None:
+            raise ValueError('YouTube API service is not connected.')
 
         try:
             # Query video metrics from API
@@ -71,5 +69,5 @@ class ContentExporter(BaseExporter):
             df["CTR"] = df_raw["ctr"]
             df["Stayed to watch"] = 0.0
             return df
-        except Exception:
-            return MockDataGenerator.generate_content(start_date, end_date)
+        except Exception as e:
+            raise RuntimeError(f'API Query failed: {e}')
