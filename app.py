@@ -88,6 +88,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Check for OAuth callback code in URL query parameters
+if "code" in st.query_params:
+    auth_code = st.query_params["code"]
+    try:
+        redirect_uri = YouTubeAuthHandler.get_redirect_uri()
+        flow = YouTubeAuthHandler.create_oauth_flow(redirect_uri=redirect_uri)
+        flow.fetch_token(code=auth_code)
+        YouTubeAuthHandler.save_credentials(flow.credentials)
+        st.query_params.clear()
+        st.success("🎉 Authentication successful!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Authentication failed: {e}")
+        st.query_params.clear()
+
 # Check auth status
 analytics_service, data_service, is_authenticated = YouTubeAuthHandler.get_services()
 channel_info = None
@@ -100,8 +115,6 @@ if "date_start" not in st.session_state:
     st.session_state.date_start = (datetime.now() - timedelta(days=28)).date()
 if "date_end" not in st.session_state:
     st.session_state.date_end = datetime.now().date()
-if "oauth_thread_started" not in st.session_state:
-    st.session_state.oauth_thread_started = False
 
 # Sidebar Configuration
 with st.sidebar:
@@ -126,6 +139,8 @@ with st.sidebar:
         
         if st.button("🚪 Log Out", use_container_width=True):
             import os
+            if "creds" in st.session_state:
+                del st.session_state["creds"]
             if os.path.exists(YouTubeAuthHandler.TOKEN_FILE):
                 os.remove(YouTubeAuthHandler.TOKEN_FILE)
             st.rerun()
@@ -134,37 +149,35 @@ with st.sidebar:
         channel_name = "YouTubeChannel"
         
         if YouTubeAuthHandler.is_client_secrets_present():
-            if not st.session_state.oauth_thread_started:
-                if st.button("🔑 Log in with Google", use_container_width=True):
-                    import threading
-                    
-                    def run_bg_flow():
-                        try:
-                            flow = YouTubeAuthHandler.create_oauth_flow()
-                            creds = flow.run_local_server(port=0, open_browser=True)
-                            YouTubeAuthHandler.save_credentials(creds)
-                        except Exception as e:
-                            st.session_state.auth_error = str(e)
-                        finally:
-                            st.session_state.oauth_thread_started = False
-                    
-                    st.session_state.oauth_thread_started = True
-                    st.session_state.auth_error = None
-                    
-                    t = threading.Thread(target=run_bg_flow)
-                    t.daemon = True
-                    t.start()
-                    st.rerun()
-            else:
-                st.info("🌐 Browser tab opened for Google Login...")
-                st.markdown("Please complete the authorization in your browser.")
-                if st.button("🔄 Complete Connection", use_container_width=True):
-                    st.rerun()
-                if st.session_state.get("auth_error"):
-                    st.error(f"Error: {st.session_state.auth_error}")
-                    st.session_state.oauth_thread_started = False
+            redirect_uri = YouTubeAuthHandler.get_redirect_uri()
+            try:
+                flow = YouTubeAuthHandler.create_oauth_flow(redirect_uri=redirect_uri)
+                auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+                
+                st.link_button("🔑 Log in with Google", auth_url, use_container_width=True)
+                st.caption("Opens Google login in your browser tab.")
+                
+                with st.expander("📌 Manual Auth Code Entry", expanded=False):
+                    manual_code = st.text_input("Paste Authorization Code or Redirect URL:")
+                    if st.button("Submit Auth Code", use_container_width=True):
+                        if manual_code:
+                            code_to_use = manual_code.strip()
+                            if "code=" in code_to_use:
+                                import urllib.parse
+                                parsed = urllib.parse.urlparse(code_to_use)
+                                query_dict = urllib.parse.parse_qs(parsed.query)
+                                code_to_use = query_dict.get("code", [code_to_use])[0]
+                            try:
+                                flow.fetch_token(code=code_to_use)
+                                YouTubeAuthHandler.save_credentials(flow.credentials)
+                                st.success("🎉 Authentication successful!")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Error exchanging code: {ex}")
+            except Exception as e:
+                st.error(f"Error setting up login link: {e}")
         else:
-            st.error("Missing `client_secrets.json` in project directory.")
+            st.error("Missing Google Client Secrets. Add `client_secrets` to Streamlit Secrets or upload `client_secrets.json`.")
 
     st.divider()
     st.markdown("### 📜 Rules Applied")
