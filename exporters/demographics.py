@@ -39,9 +39,14 @@ class DemographicsExporter(BaseExporter):
                 sort="ageGroup"
             ).execute()
 
-            headers = [col["name"] for col in response.get("columnHeaders", [])]
             rows = response.get("rows", [])
-            return pd.DataFrame(rows, columns=headers)
+            df_raw = pd.DataFrame(rows, columns=["ageGroup", "gender", "viewerPercentage"])
+            
+            df = pd.DataFrame()
+            df["Age Group"] = df_raw["ageGroup"]
+            df["Gender"] = df_raw["gender"]
+            df["Viewer Percentage"] = round(df_raw["viewerPercentage"], 2)
+            return df
         except Exception as e:
-            print(f"API Error in DemographicsExporter: {e}. Falling back to mock generator.")
-            return MockDataGenerator.generate_demographics(start_date, end_date)
+            print(f"Demographics export error: {e}")
+            return pd.DataFrame(columns=["Age Group", "Gender", "Viewer Percentage"])

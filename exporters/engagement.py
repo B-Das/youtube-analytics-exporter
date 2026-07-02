@@ -53,4 +53,7 @@ class EngagementExporter(BaseExporter):
             df["Comments added"] = df_raw["comments"]
             return df
         except Exception as e:
-            raise RuntimeError(f'API Query failed: {e}')
+            print(f"Engagement export error: {e}")
+            return pd.DataFrame(columns=[
+                "Subscribers gained", "Subscribers lost", "Likes", "Dislikes", "Likes (vs. dislikes)", "Shares", "Comments added"
+            ])

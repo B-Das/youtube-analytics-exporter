@@ -1,4 +1,5 @@
 import pandas as pd
+import datetime
 from exporters.base import BaseExporter
 
 class TrafficExporter(BaseExporter):
@@ -46,11 +47,10 @@ class TrafficExporter(BaseExporter):
             df["Traffic source"] = df_raw["traffic_source"]
             df["Views"] = df_raw["views"]
             df["Watch time (hours)"] = round(df_raw["minutes"] / 60.0, 2)
-            
-            import datetime
             df["Average view duration"] = df_raw["duration"].apply(
                 lambda x: str(datetime.timedelta(seconds=int(x)))
             )
             return df
         except Exception as e:
-            raise RuntimeError(f'API Query failed: {e}')
+            print(f"Traffic export error: {e}")
+            return pd.DataFrame(columns=["Traffic source", "Views", "Watch time (hours)", "Average view duration"])
