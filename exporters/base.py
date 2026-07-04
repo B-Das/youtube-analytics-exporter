@@ -324,8 +324,9 @@ class SchemaExporter(BaseExporter):
         dim_str = ",".join(dimensions) if dimensions else None
         metric_str = ",".join(metrics)
 
-        # Read optional filters from schema (e.g. isCurated==1 for Playlists)
+        # Read optional filters & sort from schema
         schema_filters = self.schema.get("filters")
+        schema_sort = self.schema.get("sort_api")
 
         df_raw = self.query_analytics(
             analytics_service=analytics_service,
@@ -333,6 +334,7 @@ class SchemaExporter(BaseExporter):
             end_date=end_date,
             metrics=metric_str,
             dimensions=dim_str,
+            sort=schema_sort,
             filters=schema_filters,
             channel_id=channel_id
         )

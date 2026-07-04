@@ -2,25 +2,12 @@
   "id": "daily_metrics",
   "name": "Daily Metrics",
   "filename": "Daily_Metrics.csv",
-  "sort": ["Date ASC", "Video ASC"],
+  "sort_api": "day",
+  "sort": ["Date ASC"],
   "columns": [
     {
       "api_name": "day",
       "display_name": "Date",
-      "type": "dimension",
-      "required": true,
-      "transform": null
-    },
-    {
-      "api_name": "video_title",
-      "display_name": "Video",
-      "type": "metadata",
-      "required": true,
-      "transform": null
-    },
-    {
-      "api_name": "video",
-      "display_name": "Video ID",
       "type": "dimension",
       "required": true,
       "transform": null
@@ -33,32 +20,11 @@
       "transform": null
     },
     {
-      "api_name": "engagedViews",
-      "display_name": "Engaged views",
-      "type": "metric",
-      "required": false,
-      "transform": null
-    },
-    {
       "api_name": "estimatedMinutesWatched",
       "display_name": "Watch time (hours)",
       "type": "metric",
       "required": true,
       "transform": "minutes_to_hours"
-    },
-    {
-      "api_name": "subscribersGained",
-      "display_name": "Subscribers gained",
-      "type": "metric",
-      "required": true,
-      "transform": null
-    },
-    {
-      "api_name": "subscribersLost",
-      "display_name": "Subscribers lost",
-      "type": "metric",
-      "required": true,
-      "transform": null
     },
     {
       "api_name": "averageViewDuration",
@@ -98,6 +64,20 @@
     {
       "api_name": "comments",
       "display_name": "Comments",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "subscribersGained",
+      "display_name": "Subscribers gained",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "subscribersLost",
+      "display_name": "Subscribers lost",
       "type": "metric",
       "required": true,
       "transform": null
