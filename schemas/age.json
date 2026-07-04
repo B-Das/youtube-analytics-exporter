@@ -1,0 +1,22 @@
+{
+  "id": "age",
+  "name": "Age",
+  "filename": "Age.csv",
+  "sort": ["Age group ASC"],
+  "columns": [
+    {
+      "api_name": "ageGroup",
+      "display_name": "Age group",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "viewerPercentage",
+      "display_name": "Viewer percentage",
+      "type": "metric",
+      "required": true,
+      "transform": "round_2"
+    }
+  ]
+}

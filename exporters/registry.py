@@ -1,30 +1,30 @@
+import os
 from typing import List, Dict
-from exporters.base import BaseExporter
-from exporters.overview import OverviewExporter
-from exporters.content import ContentExporter
-from exporters.reach import ReachExporter
-from exporters.audience import AudienceExporter
-from exporters.engagement import EngagementExporter
-from exporters.geography import GeographyExporter
-from exporters.traffic import TrafficExporter
-from exporters.devices import DevicesExporter
-from exporters.playlists import PlaylistsExporter
-from exporters.daily_metrics import DailyMetricsExporter
+from exporters.base import BaseExporter, SchemaExporter
 
-ALL_EXPORTERS: List[BaseExporter] = [
-    OverviewExporter(),
-    ContentExporter(),
-    ReachExporter(),
-    AudienceExporter(),
-    EngagementExporter(),
-    GeographyExporter(),
-    TrafficExporter(),
-    DevicesExporter(),
-    PlaylistsExporter(),
-    DailyMetricsExporter(),
+SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "schemas")
+
+REPORT_FILES = [
+    "overview.json",
+    "content.json",
+    "daily_metrics.json",
+    "age.json",
+    "gender.json",
+    "geography.json",
+    "traffic.json",
+    "devices.json",
+    "playlists.json"
 ]
 
-EXPORTER_MAP: Dict[str, BaseExporter] = {e.id: e for e in ALL_EXPORTERS}
+ALL_EXPORTERS: List[BaseExporter] = []
+EXPORTER_MAP: Dict[str, BaseExporter] = {}
+
+for filename in REPORT_FILES:
+    schema_path = os.path.join(SCHEMA_DIR, filename)
+    if os.path.exists(schema_path):
+        exporter = SchemaExporter(schema_path)
+        ALL_EXPORTERS.append(exporter)
+        EXPORTER_MAP[exporter.id] = exporter
 
 def get_all_exporters() -> List[BaseExporter]:
     return ALL_EXPORTERS

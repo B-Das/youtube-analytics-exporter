@@ -1,1 +1,1 @@
-# Exporters package for Historic Heights YouTube Analytics Export Tool
+# Exporters package for the YouTube Analytics export tool.

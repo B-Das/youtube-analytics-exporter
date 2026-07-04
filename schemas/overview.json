@@ -1,0 +1,92 @@
+{
+  "id": "overview",
+  "name": "Overview",
+  "filename": "Overview.csv",
+  "sort": ["Date ASC"],
+  "columns": [
+    {
+      "api_name": "day",
+      "display_name": "Date",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "views",
+      "display_name": "Views",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "engagedViews",
+      "display_name": "Engaged views",
+      "type": "metric",
+      "required": false,
+      "transform": null
+    },
+    {
+      "api_name": "estimatedMinutesWatched",
+      "display_name": "Watch time (hours)",
+      "type": "metric",
+      "required": true,
+      "transform": "minutes_to_hours"
+    },
+    {
+      "api_name": "subscribersGained",
+      "display_name": "Subscribers gained",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "subscribersLost",
+      "display_name": "Subscribers lost",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "averageViewDuration",
+      "display_name": "Average view duration",
+      "type": "metric",
+      "required": true,
+      "transform": "seconds_to_duration"
+    },
+    {
+      "api_name": "averageViewPercentage",
+      "display_name": "Average percentage viewed",
+      "type": "metric",
+      "required": true,
+      "transform": "round_2"
+    },
+    {
+      "api_name": "likes",
+      "display_name": "Likes",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "dislikes",
+      "display_name": "Dislikes",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "comments",
+      "display_name": "Comments",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "shares",
+      "display_name": "Shares",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "devices",
+  "name": "Devices",
+  "filename": "Devices.csv",
+  "sort": ["Views DESC"],
+  "columns": [
+    {
+      "api_name": "deviceType",
+      "display_name": "Device type",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "views",
+      "display_name": "Views",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "engagedViews",
+      "display_name": "Engaged views",
+      "type": "metric",
+      "required": false,
+      "transform": null
+    },
+    {
+      "api_name": "estimatedMinutesWatched",
+      "display_name": "Watch time (hours)",
+      "type": "metric",
+      "required": true,
+      "transform": "minutes_to_hours"
+    }
+  ]
+}

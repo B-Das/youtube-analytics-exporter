@@ -1,5 +1,5 @@
+# LEGACY: This class is not used by the active SchemaExporter registry. Do not instantiate directly.
 import pandas as pd
-import datetime
 from exporters.base import BaseExporter
 
 class PlaylistsExporter(BaseExporter):
@@ -14,67 +14,62 @@ class PlaylistsExporter(BaseExporter):
 
     @property
     def filename(self) -> str:
-        return "playlists.csv"
+        return "Playlists.csv"
 
     @property
     def description(self) -> str:
-        return "Playlist performance: Playlist title, Starts, Views, Watch time, Duration."
+        return "Playlist performance using playlist-specific YouTube Analytics metrics."
 
     def export(
         self,
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None
+        data_service=None,
+        channel_id: str = None
     ) -> pd.DataFrame:
         if analytics_service is None:
             raise ValueError("YouTube API service is not connected.")
 
         try:
-            # Query playlist metrics if API supports it
-            response = analytics_service.reports().query(
-                ids="channel==MINE",
-                startDate=start_date,
-                endDate=end_date,
-                metrics="views,estimatedMinutesWatched,averageViewDuration",
+            df_raw = self.query_analytics(
+                analytics_service=analytics_service,
+                start_date=start_date,
+                end_date=end_date,
+                metrics=(
+                    "playlistViews,playlistEstimatedMinutesWatched,"
+                    "playlistAverageViewDuration,playlistSaves,playlistStarts,"
+                    "viewsPerPlaylistStart,averageTimeInPlaylist"
+                ),
                 dimensions="playlist",
-                sort="-views"
-            ).execute()
-
-            rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=["playlist", "views", "minutes", "duration"])
+                sort="-playlistViews",
+                max_results=200,
+                channel_id=channel_id
+            )
+            playlist_metadata = self.resolve_playlist_metadata(data_service, df_raw["playlist"].tolist())
             
             df = pd.DataFrame()
-            df["Playlist"] = df_raw["playlist"]
-            df["Playlist starts"] = 0
-            df["Views"] = df_raw["views"]
-            df["Watch time (hours)"] = round(df_raw["minutes"] / 60.0, 2)
-            df["Average view duration"] = df_raw["duration"].apply(
-                lambda x: str(datetime.timedelta(seconds=int(x)))
+            df["Playlist"] = df_raw["playlist"].apply(
+                lambda x: playlist_metadata.get(x, {}).get("title", "")
+            )
+            df["Playlist ID"] = df_raw["playlist"]
+            df["Playlist views"] = df_raw["playlistViews"]
+            df["Playlist starts"] = df_raw["playlistStarts"]
+            df["Playlist saves"] = df_raw["playlistSaves"]
+            df["Playlist watch time (hours)"] = round(df_raw["playlistEstimatedMinutesWatched"] / 60.0, 2)
+            df["Average view duration"] = df_raw["playlistAverageViewDuration"].apply(
+                self.seconds_to_duration
+            )
+            df["Views per playlist start"] = round(df_raw["viewsPerPlaylistStart"], 2)
+            df["Average time in playlist"] = df_raw["averageTimeInPlaylist"].apply(
+                self.seconds_to_duration
             )
             return df
         except Exception as e:
             print(f"Playlists export error (unsupported query or no playlists): {e}")
-            # Fallback to listing channel playlists via Data API if available
-            df_cols = ["Playlist", "Playlist starts", "Views", "Watch time (hours)", "Average view duration"]
-            if data_service:
-                try:
-                    p_res = data_service.playlists().list(
-                        part="snippet,contentDetails",
-                        mine=True,
-                        maxResults=50
-                    ).execute()
-                    p_rows = []
-                    for item in p_res.get("items", []):
-                        title = item["snippet"].get("title", "Untitled")
-                        p_rows.append({
-                            "Playlist": title,
-                            "Playlist starts": 0,
-                            "Views": 0,
-                            "Watch time (hours)": 0.0,
-                            "Average view duration": "00:00:00"
-                        })
-                    return pd.DataFrame(p_rows, columns=df_cols)
-                except Exception:
-                    pass
-            return pd.DataFrame(columns=df_cols)
+            return pd.DataFrame(columns=[
+                "Playlist", "Playlist ID", "Playlist views", "Playlist starts",
+                "Playlist saves", "Playlist watch time (hours)",
+                "Average view duration", "Views per playlist start",
+                "Average time in playlist"
+            ])

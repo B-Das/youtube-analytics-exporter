@@ -9,11 +9,11 @@ class DemographicsExporter(BaseExporter):
 
     @property
     def name(self) -> str:
-        return "Viewer Age & Gender"
+        return "Audience"
 
     @property
     def filename(self) -> str:
-        return "demographics.csv"
+        return "Audience.csv"
 
     @property
     def description(self) -> str:
@@ -24,29 +24,28 @@ class DemographicsExporter(BaseExporter):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None
+        data_service=None,
+        channel_id: str = None
     ) -> pd.DataFrame:
         if analytics_service is None:
             raise ValueError('YouTube API service is not connected.')
 
         try:
-            response = analytics_service.reports().query(
-                ids="channel==MINE",
-                startDate=start_date,
-                endDate=end_date,
+            df_raw = self.query_analytics(
+                analytics_service=analytics_service,
+                start_date=start_date,
+                end_date=end_date,
                 metrics="viewerPercentage",
                 dimensions="ageGroup,gender",
-                sort="ageGroup"
-            ).execute()
-
-            rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=["ageGroup", "gender", "viewerPercentage"])
+                sort="ageGroup",
+                channel_id=channel_id
+            )
             
             df = pd.DataFrame()
-            df["Age Group"] = df_raw["ageGroup"]
+            df["Age group"] = df_raw["ageGroup"]
             df["Gender"] = df_raw["gender"]
-            df["Viewer Percentage"] = round(df_raw["viewerPercentage"], 2)
+            df["Viewer percentage"] = round(df_raw["viewerPercentage"], 2)
             return df
         except Exception as e:
             print(f"Demographics export error: {e}")
-            return pd.DataFrame(columns=["Age Group", "Gender", "Viewer Percentage"])
+            return pd.DataFrame(columns=["Age group", "Gender", "Viewer percentage"])

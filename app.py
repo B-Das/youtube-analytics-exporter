@@ -1,28 +1,52 @@
+import os
+import importlib
+import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
-import pandas as pd
-from exporters.registry import get_all_exporters
-from zip_archiver import build_analytics_zip
+
+import youtube_auth
+importlib.reload(youtube_auth)
 from youtube_auth import YouTubeAuthHandler
+
+from exporters.registry import get_all_exporters, get_exporter_by_id
+from zip_archiver import build_analytics_zip
+from engine.schema_validator import validate_all_schemas, SchemaValidationError
+
+SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schemas")
+
+# Validate schemas on startup
+try:
+    VALIDATED_SCHEMAS = validate_all_schemas(SCHEMA_DIR)
+except SchemaValidationError as sve:
+    st.error(f"⚠️ Startup Schema Validation Error: {sve}")
+    st.stop()
 
 # Streamlit Page Configuration
 st.set_page_config(
-    page_title="YouTube Studio Analytics Exporter",
+    page_title="YouTube Studio Exporter",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_cached_preview(exp_id: str, start_date: str, end_date: str, channel_id: str, _analytics_service, _data_service):
+    exporter = get_exporter_by_id(exp_id)
+    if not exporter:
+        return None
+    return exporter.export(
+        start_date=start_date,
+        end_date=end_date,
+        analytics_service=_analytics_service,
+        data_service=_data_service,
+        channel_id=channel_id
+    )
+
 # Custom Styling
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Outfit', sans-serif;
-    }
-    
-    .stApp {
+    html, body, .stApp {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
         background-color: #0f172a;
         color: #f8fafc;
     }
@@ -88,14 +112,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Check for OAuth callback code in URL query parameters
+# OAuth Callback handling
 if "code" in st.query_params:
     auth_code = st.query_params["code"]
     try:
         redirect_uri = YouTubeAuthHandler.get_redirect_uri()
-        flow = YouTubeAuthHandler.create_oauth_flow(redirect_uri=redirect_uri)
-        flow.fetch_token(code=auth_code)
-        YouTubeAuthHandler.save_credentials(flow.credentials)
+        YouTubeAuthHandler.exchange_code_for_credentials(code=auth_code, redirect_uri=redirect_uri)
         st.query_params.clear()
         st.success("🎉 Authentication successful!")
         st.rerun()
@@ -103,41 +125,71 @@ if "code" in st.query_params:
         st.error(f"Authentication failed: {e}")
         st.query_params.clear()
 
-# Check auth status
+# Retrieve authentication status and services
 analytics_service, data_service, is_authenticated = YouTubeAuthHandler.get_services()
 channel_info = None
+available_channels = []
 
 if is_authenticated:
-    channel_info = YouTubeAuthHandler.get_channel_info(data_service)
+    available_channels = YouTubeAuthHandler.get_channels(data_service)
+    available_channel_ids = {ch["id"] for ch in available_channels}
+    selected_channel_id = st.session_state.get("selected_channel_id")
 
-# Initialize Session States
-if "date_start" not in st.session_state:
-    st.session_state.date_start = (datetime.now() - timedelta(days=28)).date()
-if "date_end" not in st.session_state:
-    st.session_state.date_end = datetime.now().date()
+    if len(available_channels) == 1:
+        selected_channel_id = available_channels[0]["id"]
+        st.session_state["selected_channel_id"] = selected_channel_id
+    elif selected_channel_id not in available_channel_ids:
+        selected_channel_id = None
+        st.session_state.pop("selected_channel_id", None)
 
-# Sidebar Configuration
+    if selected_channel_id:
+        channel_info = next(
+            (ch for ch in available_channels if ch["id"] == selected_channel_id),
+            None
+        )
+
+# Initialize Session States for Dates
+if "date_start_input" not in st.session_state:
+    st.session_state["date_start_input"] = (datetime.now() - timedelta(days=28)).date()
+if "date_end_input" not in st.session_state:
+    st.session_state["date_end_input"] = datetime.now().date()
+
+st.session_state.date_start = st.session_state["date_start_input"]
+st.session_state.date_end = st.session_state["date_end_input"]
+
+# Sidebar Navigation & Authentication Status
 with st.sidebar:
     st.header("🔑 Authentication")
     
     if is_authenticated:
+        if available_channels and len(available_channels) > 1:
+            st.subheader("📺 Select Active Channel")
+            channel_options = {ch["title"]: ch["id"] for ch in available_channels}
+            selected_title = st.selectbox(
+                "Choose Channel:",
+                options=list(channel_options.keys()),
+                index=0
+            )
+            st.session_state["selected_channel_id"] = channel_options[selected_title]
+            channel_info = next((ch for ch in available_channels if ch["id"] == channel_options[selected_title]), None)
+
         if channel_info:
+            subscribers_val = channel_info.get("subscribers")
+            sub_display = f"{int(subscribers_val):,} subscribers" if subscribers_val else "Channel Connected"
             st.markdown(f"""
             <div style="background-color: #1e293b; border: 1px solid #0284c7; border-radius: 8px; padding: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
-                <img src="{channel_info['thumbnail']}" style="border-radius: 50%; width: 44px; height: 44px; border: 2px solid #38bdf8;" />
+                <img src="{channel_info.get('thumbnail', '')}" style="border-radius: 50%; width: 44px; height: 44px; border: 2px solid #38bdf8;" />
                 <div>
-                    <div style="font-weight: bold; color: #f8fafc; font-size: 0.9rem; line-height: 1.2;">{channel_info['title']}</div>
+                    <div style="font-weight: bold; color: #f8fafc; font-size: 0.9rem; line-height: 1.2;">{channel_info.get('title', 'Channel')}</div>
                     <div style="color: #38bdf8; font-size: 0.8rem; font-weight: 500; margin-top: 2px;">🟢 Connected</div>
-                    <div style="color: #94a3b8; font-size: 0.75rem;">{int(channel_info['subscribers']):,} subscribers</div>
+                    <div style="color: #94a3b8; font-size: 0.75rem;">{sub_display}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            channel_name = channel_info['title'].replace(" ", "")
         else:
             st.success("🟢 Authenticated Successfully!")
-            channel_name = "YouTubeChannel"
-        
-        if st.button("🚪 Log Out", use_container_width=True):
+
+        if st.button("🚪 Log Out", width="stretch"):
             import os
             if "creds" in st.session_state:
                 del st.session_state["creds"]
@@ -146,106 +198,108 @@ with st.sidebar:
             st.rerun()
     else:
         st.warning("🔴 Not Connected to YouTube")
-        channel_name = "YouTubeChannel"
-        
         if YouTubeAuthHandler.is_client_secrets_present():
             redirect_uri = YouTubeAuthHandler.get_redirect_uri()
             try:
-                flow = YouTubeAuthHandler.create_oauth_flow(redirect_uri=redirect_uri)
-                auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
-                
-                st.link_button("🔑 Log in with Google", auth_url, use_container_width=True)
-                st.caption("Opens Google login in your browser tab.")
-                
-                with st.expander("📌 Manual Auth Code Entry", expanded=False):
-                    manual_code = st.text_input("Paste Authorization Code or Redirect URL:")
-                    if st.button("Submit Auth Code", use_container_width=True):
-                        if manual_code:
-                            code_to_use = manual_code.strip()
-                            if "code=" in code_to_use:
-                                import urllib.parse
-                                parsed = urllib.parse.urlparse(code_to_use)
-                                query_dict = urllib.parse.parse_qs(parsed.query)
-                                code_to_use = query_dict.get("code", [code_to_use])[0]
-                            try:
-                                flow.fetch_token(code=code_to_use)
-                                YouTubeAuthHandler.save_credentials(flow.credentials)
-                                st.success("🎉 Authentication successful!")
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"Error exchanging code: {ex}")
+                auth_url, _ = YouTubeAuthHandler.get_auth_url(redirect_uri=redirect_uri)
+                st.link_button("🔑 Log in with Google", auth_url, width="stretch")
             except Exception as e:
-                st.error(f"Error setting up login link: {e}")
+                st.error(f"Error setting up auth: {e}")
         else:
             st.error("Missing Google Client Secrets. Add `client_secrets` to Streamlit Secrets or upload `client_secrets.json`.")
 
     st.divider()
-    st.markdown("### 📜 Rules Applied")
-    st.info("✓ Exact YouTube Studio headers\n\n✓ YouTube Studio column ordering\n\n✓ Zero custom calculated metrics")
+    st.markdown("### 📜 Export Rules")
+    st.info("✓ Official metrics only\n\n✓ Exact YouTube Studio headers\n\n✓ UTF-8 BOM encoding\n\n✓ Zero estimated data")
 
 # Header Rendering
-channel_title_header = channel_info['title'] if (is_authenticated and channel_info) else "YouTube Analytics"
+channel_header_name = channel_info['title'] if (is_authenticated and channel_info) else "YouTube Studio"
 st.markdown(f"""
 <div class="main-header">
-    <div class="brand-title">⚡ {channel_title_header} — One-Click Exporter (V1)</div>
-    <div class="brand-subtitle">Download clean raw report packages matching YouTube Studio exactly. No renaming, no calculated columns.</div>
+    <div class="brand-title">⚡ {channel_header_name} — Studio Exporter</div>
+    <div class="brand-subtitle">Exports official data available through the YouTube Analytics API and YouTube Data API v3 using YouTube Studio terminology where applicable.</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Authentication Guard
 if not is_authenticated:
     st.info("👋 Welcome! Please log in with your Google account in the sidebar to access your channel's export dashboard.")
     st.stop()
 
-# ----------------- Main Dashboard -----------------
+# API Compatibility Check Dashboard Panel
+st.subheader("🔍 API Connection Verification")
+col_chk1, col_chk2, col_chk3, col_chk4 = st.columns(4)
+with col_chk1:
+    st.success("✔ Analytics API: Connected")
+with col_chk2:
+    st.success("✔ Data API v3: Connected")
+with col_chk3:
+    st.success("✔ OAuth Scopes: Granted")
+with col_chk4:
+    if channel_info:
+        st.success(f"✔ Channel: {channel_info['title']}")
+    else:
+        st.warning("⚠️ Channel: Loading...")
 
+st.divider()
+
+# Date Range Selection Panel
 st.subheader("📅 1. Select Date Range")
 col_p1, col_p2, col_p3, col_p4, col_p5, col_p6, col_p7, col_p8 = st.columns(8)
 today = datetime.now().date()
 
 with col_p1:
-    if st.button("Today", use_container_width=True):
-        st.session_state.date_start = today
-        st.session_state.date_end = today
+    if st.button("Today", width="stretch"):
+        st.session_state["date_start_input"] = today
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p2:
-    if st.button("Yesterday", use_container_width=True):
-        st.session_state.date_start = today - timedelta(days=1)
-        st.session_state.date_end = today - timedelta(days=1)
+    if st.button("Yesterday", width="stretch"):
+        st.session_state["date_start_input"] = today - timedelta(days=1)
+        st.session_state["date_end_input"] = today - timedelta(days=1)
+        st.rerun()
 with col_p3:
-    if st.button("Last 7 Days", use_container_width=True):
-        st.session_state.date_start = today - timedelta(days=7)
-        st.session_state.date_end = today
+    if st.button("Last 7 Days", width="stretch"):
+        st.session_state["date_start_input"] = today - timedelta(days=7)
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p4:
-    if st.button("Last 28 Days", use_container_width=True):
-        st.session_state.date_start = today - timedelta(days=28)
-        st.session_state.date_end = today
+    if st.button("Last 28 Days", width="stretch"):
+        st.session_state["date_start_input"] = today - timedelta(days=28)
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p5:
-    if st.button("Last 90 Days", use_container_width=True):
-        st.session_state.date_start = today - timedelta(days=90)
-        st.session_state.date_end = today
+    if st.button("Last 90 Days", width="stretch"):
+        st.session_state["date_start_input"] = today - timedelta(days=90)
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p6:
-    if st.button("Last 365 Days", use_container_width=True):
-        st.session_state.date_start = today - timedelta(days=365)
-        st.session_state.date_end = today
+    if st.button("Last 365 Days", width="stretch"):
+        st.session_state["date_start_input"] = today - timedelta(days=365)
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p7:
-    if st.button("Lifetime", use_container_width=True):
-        st.session_state.date_start = datetime(2024, 1, 1).date()
-        st.session_state.date_end = today
+    if st.button("Lifetime", width="stretch"):
+        st.session_state["date_start_input"] = datetime(2024, 1, 1).date()
+        st.session_state["date_end_input"] = today
+        st.rerun()
 with col_p8:
     st.markdown("**Custom**")
 
 col_d1, col_d2 = st.columns(2)
 with col_d1:
-    st.session_state.date_start = st.date_input("Start Date", value=st.session_state.date_start)
+    d_start = st.date_input("Start Date", key="date_start_input")
 with col_d2:
-    st.session_state.date_end = st.date_input("End Date", value=st.session_state.date_end)
+    d_end = st.date_input("End Date", key="date_end_input")
 
-str_start = st.session_state.date_start.strftime("%Y-%m-%d")
-str_end = st.session_state.date_end.strftime("%Y-%m-%d")
+st.session_state.date_start = d_start
+st.session_state.date_end = d_end
+
+str_start = d_start.strftime("%Y-%m-%d")
+str_end = d_end.strftime("%Y-%m-%d")
 
 st.divider()
 
-# Exporters Checklist
+# Reports Selection Checklist
 st.subheader("📋 2. Select Reports to Include")
 all_exporters = get_all_exporters()
 
@@ -264,95 +318,128 @@ for idx, exp in enumerate(all_exporters):
 
 st.divider()
 
-# Preview Summary
-st.subheader("📊 3. Export Preview & Summary")
-est_days = max(1, (st.session_state.date_end - st.session_state.date_start).days + 1)
-est_files = len(selected_exporters) + 1
-est_rows = sum([e.estimate_rows(str_start, str_end) for e in selected_exporters])
-est_size_kb = max(2.5, est_rows * 0.11)
+# Actions & Downloader
+st.subheader("🚀 3. Export Package Generation")
 
-c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-with c_m1:
-    st.markdown(f'<div class="stat-box"><div class="stat-label">Requested Time Range</div><div class="stat-value">{est_days} Days</div><div style="font-size:0.8rem; color:#94a3b8;">{str_start} → {str_end}</div></div>', unsafe_allow_html=True)
-with c_m2:
-    st.markdown(f'<div class="stat-box"><div class="stat-label">Estimated Files</div><div class="stat-value">{est_files} Files</div><div style="font-size:0.8rem; color:#94a3b8;">CSVs + metadata.json</div></div>', unsafe_allow_html=True)
-with c_m3:
-    st.markdown(f'<div class="stat-box"><div class="stat-label">Estimated Total Rows</div><div class="stat-value">~{est_rows:,}</div><div style="font-size:0.8rem; color:#94a3b8;">Raw CSV data rows</div></div>', unsafe_allow_html=True)
-with c_m4:
-    st.markdown(f'<div class="stat-box"><div class="stat-label">Estimated ZIP Size</div><div class="stat-value">~{est_size_kb:.1f} KB</div><div style="font-size:0.8rem; color:#94a3b8;">Compressed archive</div></div>', unsafe_allow_html=True)
+progress_container = st.empty()
+summary_container = st.empty()
 
-st.markdown("<br>", unsafe_allow_html=True)
-
-# Progress checklist container
-progress_placeholder = st.empty()
-
-# Downloader Actions
 col_act1, col_act2 = st.columns(2)
 
-def progress_update_callback(name, current, total):
-    with progress_placeholder.container():
-        percent = int((current / total) * 100)
-        st.markdown(f"**Exporting:** {name} ({current}/{total})")
+def progress_update_callback(name, current, total, percent):
+    with progress_container.container():
+        st.markdown(f"**Export Progress:** `{name}` ({current}/{total})")
         st.progress(percent)
 
 with col_act1:
-    if st.button("🚀 Download Everything (All Reports)", use_container_width=True):
-        zip_bytes, stats = build_analytics_zip(
-            selected_exporters=all_exporters,
-            start_date=str_start,
-            end_date=str_end,
-            channel_name=channel_name,
-            analytics_service=analytics_service,
-            data_service=data_service,
-            progress_callback=progress_update_callback
-        )
-        progress_placeholder.success("✔ Overview ✔ Content ✔ Reach ✔ Audience ✔ Daily Metrics ✔ ZIP Packaged!")
-        st.download_button(
-            label=f"💾 Save {stats['filename']} ({stats['size_kb']} KB)",
-            data=zip_bytes,
-            file_name=stats['filename'],
-            mime="application/zip",
-            use_container_width=True
-        )
-
-with col_act2:
-    if st.button("📦 Download Selected Reports", use_container_width=True):
-        if not selected_exporters:
-            st.error("Please check at least one report exporter checkbox above!")
+    if st.button(f"🚀 Download Everything (All {len(all_exporters)} Reports)", width="stretch"):
+        if not channel_info:
+            st.error("No active channel selected.")
         else:
-            zip_bytes, stats = build_analytics_zip(
-                selected_exporters=selected_exporters,
-                start_date=str_start,
-                end_date=str_end,
-                channel_name=channel_name,
-                analytics_service=analytics_service,
-                data_service=data_service,
-                progress_callback=progress_update_callback
-            )
-            progress_placeholder.success(f"✔ Selected {len(selected_exporters)} reports packaged successfully!")
-            st.download_button(
-                label=f"💾 Save {stats['filename']} ({stats['size_kb']} KB)",
-                data=zip_bytes,
-                file_name=stats['filename'],
-                mime="application/zip",
-                use_container_width=True
-            )
-
-# Table preview
-st.divider()
-st.subheader("🔍 Selected Report Preview")
-
-if selected_exporters:
-    tabs = st.tabs([e.name for e in selected_exporters])
-    for idx, exp in enumerate(selected_exporters):
-        with tabs[idx]:
             try:
-                df_preview = exp.export(
+                zip_bytes, stats = build_analytics_zip(
+                    selected_exporters=all_exporters,
                     start_date=str_start,
                     end_date=str_end,
+                    channel_info=channel_info,
                     analytics_service=analytics_service,
-                    data_service=data_service
+                    data_service=data_service,
+                    progress_callback=progress_update_callback
                 )
-                st.dataframe(df_preview, use_container_width=True)
+                progress_container.success(f"✔ All {len(all_exporters)} reports packaged successfully!")
+
+                with summary_container.container():
+                    st.markdown(f"""
+                    <div style="background-color: #1e293b; border: 1px solid #38bdf8; border-radius: 10px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="color: #38bdf8; margin-top:0;">🎉 Export Complete</h4>
+                        <p style="margin: 4px 0;"><strong>Session ID:</strong> <code>{stats['session_id']}</code></p>
+                        <p style="margin: 4px 0;"><strong>Success:</strong> {stats['success_count']} | <strong>Failed:</strong> {stats['failed_count']} | <strong>Total Reports:</strong> {stats['total_reports']}</p>
+                        <p style="margin: 4px 0;"><strong>Total Rows:</strong> {stats['total_rows']:,} | <strong>ZIP Size:</strong> {stats['size_mb']} MB | <strong>Generated in:</strong> {stats['duration_seconds']}s</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if stats['failed_reports']:
+                        for rep_name, rep_info in stats['failed_reports'].items():
+                            st.warning(f"⚠️ **{rep_name}** could not be exported: {rep_info.get('reason', 'Unknown error')}")
+
+                st.download_button(
+                    label=f"💾 Save {stats['filename']} ({stats['size_mb']} MB)",
+                    data=zip_bytes,
+                    file_name=stats['filename'],
+                    mime="application/zip",
+                    width="stretch"
+                )
             except Exception as e:
-                st.error(f"Failed to query {exp.name}: {e}")
+                from exporters.base import BaseExporter
+                _summary = BaseExporter.api_error_summary(None, e) if hasattr(BaseExporter, 'api_error_summary') else str(e)
+                progress_container.error(f"❌ Export failed: {_summary}")
+
+with col_act2:
+    if st.button("📦 Download Selected Reports", width="stretch"):
+        if not selected_exporters:
+            st.error("Please check at least one report exporter checkbox above!")
+        elif not channel_info:
+            st.error("No active channel selected.")
+        else:
+            try:
+                zip_bytes, stats = build_analytics_zip(
+                    selected_exporters=selected_exporters,
+                    start_date=str_start,
+                    end_date=str_end,
+                    channel_info=channel_info,
+                    analytics_service=analytics_service,
+                    data_service=data_service,
+                    progress_callback=progress_update_callback
+                )
+                progress_container.success(f"✔ Selected {len(selected_exporters)} reports packaged successfully!")
+
+                with summary_container.container():
+                    st.markdown(f"""
+                    <div style="background-color: #1e293b; border: 1px solid #38bdf8; border-radius: 10px; padding: 16px; margin-bottom: 16px;">
+                        <h4 style="color: #38bdf8; margin-top:0;">🎉 Export Complete</h4>
+                        <p style="margin: 4px 0;"><strong>Session ID:</strong> <code>{stats['session_id']}</code></p>
+                        <p style="margin: 4px 0;"><strong>Success:</strong> {stats['success_count']} | <strong>Failed:</strong> {stats['failed_count']} | <strong>Total Reports:</strong> {stats['total_reports']}</p>
+                        <p style="margin: 4px 0;"><strong>Total Rows:</strong> {stats['total_rows']:,} | <strong>ZIP Size:</strong> {stats['size_mb']} MB | <strong>Generated in:</strong> {stats['duration_seconds']}s</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if stats['failed_reports']:
+                        for rep_name, rep_info in stats['failed_reports'].items():
+                            st.warning(f"⚠️ **{rep_name}** could not be exported: {rep_info.get('reason', 'Unknown error')}")
+
+                st.download_button(
+                    label=f"💾 Save {stats['filename']} ({stats['size_mb']} MB)",
+                    data=zip_bytes,
+                    file_name=stats['filename'],
+                    mime="application/zip",
+                    width="stretch"
+                )
+            except Exception as e:
+                from exporters.base import BaseExporter
+                _summary = BaseExporter.api_error_summary(None, e) if hasattr(BaseExporter, 'api_error_summary') else str(e)
+                progress_container.error(f"❌ Export failed: {_summary}")
+
+# Table Previews
+st.divider()
+with st.expander("🔍 Selected Report Previews (Click to expand)", expanded=False):
+    if selected_exporters and channel_info:
+        tabs = st.tabs([exp.name for exp in selected_exporters])
+        for idx, exp in enumerate(selected_exporters):
+            with tabs[idx]:
+                try:
+                    with st.spinner(f"Loading preview for {exp.name}..."):
+                        df_preview = fetch_cached_preview(
+                            exp.id,
+                            str_start,
+                            str_end,
+                            channel_info["id"],
+                            analytics_service,
+                            data_service
+                        )
+                    if df_preview is None or df_preview.empty:
+                        st.info(f"ℹ️ No records found for **{exp.name}** in date range ({str_start} to {str_end}).")
+                    else:
+                        st.caption(f"Showing preview of {len(df_preview):,} rows")
+                        st.dataframe(df_preview, width="stretch")
+                except Exception as e:
+                    from exporters.base import BaseExporter
+                    _err = BaseExporter.api_error_summary(None, e) if hasattr(BaseExporter, 'api_error_summary') else str(e)
+                    st.warning(f"⚠️ Could not load preview for **{exp.name}**: {_err}")

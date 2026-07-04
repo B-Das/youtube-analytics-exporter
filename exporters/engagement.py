@@ -13,7 +13,7 @@ class EngagementExporter(BaseExporter):
 
     @property
     def filename(self) -> str:
-        return "engagement.csv"
+        return "Engagement.csv"
 
     @property
     def description(self) -> str:
@@ -24,36 +24,36 @@ class EngagementExporter(BaseExporter):
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None
+        data_service=None,
+        channel_id: str = None
     ) -> pd.DataFrame:
         if analytics_service is None:
             raise ValueError('YouTube API service is not connected.')
 
         try:
-            response = analytics_service.reports().query(
-                ids="channel==MINE",
-                startDate=start_date,
-                endDate=end_date,
+            df_raw = self.query_analytics(
+                analytics_service=analytics_service,
+                start_date=start_date,
+                end_date=end_date,
                 metrics="subscribersGained,subscribersLost,likes,dislikes,shares,comments",
-                dimensions="day"
-            ).execute()
-
-            rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=[
-                "day", "subscribersGained", "subscribersLost", "likes", "dislikes", "shares", "comments"
-            ])
+                dimensions="day",
+                sort="day",
+                channel_id=channel_id
+            )
             
             df = pd.DataFrame()
+            df["Date"] = df_raw["day"]
             df["Subscribers gained"] = df_raw["subscribersGained"]
             df["Subscribers lost"] = df_raw["subscribersLost"]
             df["Likes"] = df_raw["likes"]
             df["Dislikes"] = df_raw["dislikes"]
-            df["Likes (vs. dislikes)"] = round((df_raw["likes"] / (df_raw["likes"] + df_raw["dislikes"]).replace(0, 1)) * 100, 2)
             df["Shares"] = df_raw["shares"]
             df["Comments added"] = df_raw["comments"]
             return df
         except Exception as e:
             print(f"Engagement export error: {e}")
             return pd.DataFrame(columns=[
-                "Subscribers gained", "Subscribers lost", "Likes", "Dislikes", "Likes (vs. dislikes)", "Shares", "Comments added"
+                "Date", "Subscribers gained", "Subscribers lost",
+                "Likes", "Dislikes", "Shares",
+                "Comments added"
             ])

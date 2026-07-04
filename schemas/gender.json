@@ -1,0 +1,22 @@
+{
+  "id": "gender",
+  "name": "Gender",
+  "filename": "Gender.csv",
+  "sort": ["Viewer percentage DESC"],
+  "columns": [
+    {
+      "api_name": "gender",
+      "display_name": "Gender",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "viewerPercentage",
+      "display_name": "Viewer percentage",
+      "type": "metric",
+      "required": true,
+      "transform": "round_2"
+    }
+  ]
+}

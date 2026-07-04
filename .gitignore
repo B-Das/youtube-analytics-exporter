@@ -2,7 +2,10 @@
 client_secrets.json
 token.pickle
 token.json
+verifier.txt
 daily_exports/
+streamlit.log
+streamlit.err.log
 
 # Python cache
 __pycache__/
@@ -15,3 +18,6 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 .DS_Store
+
+# Development / scratch scripts
+scratch/

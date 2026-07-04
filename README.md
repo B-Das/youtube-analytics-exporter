@@ -9,18 +9,20 @@ A fast, lightweight, and professional YouTube Analytics Export tool. It replaces
 ## 🌟 Features
 
 - **Google OAuth Authentication**: Securely log in with your YouTube-linked Google account to directly fetch authenticated analytics via the YouTube Data and Analytics APIs.
+- **Dynamic Channel Identity**: Channel ID, name, handle, thumbnail, counts, and creation date are loaded from YouTube Data API v3. Accounts with multiple owned channels can select one before exporting.
 - **Preset Date Range Selector**: Quick buttons for Today, Yesterday, Last 7 Days, Last 28 Days, Last 90 Days, Last 365 Days, Lifetime, or Custom date inputs.
 - **Selective Download Checklist**: Toggle individual reports (`overview.csv`, `content.csv`, `reach.csv`, `audience.csv`, `daily_metrics.csv`, `playlists.csv`, etc.).
 - **Real-Time Export Preview**: Live preview table of your YouTube channel's real data before you download.
 - **One-Click Download**: Click **[Download Everything]** to generate a single ZIP package containing all CSV sheets and `metadata.json`.
 - **Automated Daily Task**: Run `python fetch_daily.py` to automatically fetch and save daily exports locally.
+- **API Inspector**: Inspect each report's API endpoint, metrics, dimensions, filters, row count, execution time, and errors.
 
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Prerequisites
-Create a `client_secrets.json` file in your root directory (or configure Streamlit Cloud secrets in TOML format) containing your Google Cloud project OAuth credentials. Ensure the **YouTube Analytics API** is enabled in your Google Cloud Console.
+Create a `client_secrets.json` file in your root directory (or configure Streamlit Cloud secrets in TOML format) containing your Google Cloud project OAuth credentials. Enable both **YouTube Analytics API** and **YouTube Data API v3** in your Google Cloud project.
 
 ### 2. Run the Streamlit Dashboard Locally
 ```bash
@@ -33,7 +35,7 @@ Open the URL shown in your terminal (usually `http://localhost:8501`).
 ```bash
 python fetch_daily.py
 ```
-This saves a daily package inside the `daily_exports/` directory based on your authenticated session.
+This saves each owned channel's package inside a dynamically named `daily_exports/<channel name>/` directory.
 
 ---
 
@@ -42,22 +44,24 @@ This saves a daily package inside the `daily_exports/` directory based on your a
 When downloading your ZIP archive, the unzipped contents will contain:
 
 ```
-YouTubeChannel_2026-06-04_to_2026-07-02.zip
+<Actual Channel Name>_2026-06-04_to_2026-07-02.zip
 │
 ├── metadata.json
-├── overview.csv
-├── content.csv
-├── reach.csv
-├── audience.csv
-├── daily_metrics.csv
-└── playlists.csv
+├── Overview.csv
+├── Content.csv
+├── Reach.csv
+├── Audience.csv
+├── Daily Metrics.csv
+└── Playlists.csv
 ```
 
 ### `metadata.json` Example
 ```json
 {
+  "channel": "Actual Connected Channel Name",
+  "channel_id": "UCxxxxxxxx",
+  "handle": "@channelhandle",
   "Generated At": "2026-07-02T13:00:00Z",
-  "Channel": "Your YouTube Channel",
   "Date Range": {
     "start": "2026-06-04",
     "end": "2026-07-02"
@@ -67,8 +71,8 @@ YouTubeChannel_2026-06-04_to_2026-07-02.zip
   "Total Files": 7,
   "Total Rows": 240,
   "Manifest": [
-    { "Report Name": "Overview", "Filename": "overview.csv", "Rows": 28 },
-    { "Report Name": "Content", "Filename": "content.csv", "Rows": 8 }
+    { "Report Name": "Overview", "Filename": "Overview.csv", "Rows": 28 },
+    { "Report Name": "Content", "Filename": "Content.csv", "Rows": 8 }
   ]
 }
 ```

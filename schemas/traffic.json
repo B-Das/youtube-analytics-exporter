@@ -1,0 +1,36 @@
+{
+  "id": "traffic",
+  "name": "Traffic source",
+  "filename": "Traffic_Source.csv",
+  "sort": ["Views DESC"],
+  "columns": [
+    {
+      "api_name": "insightTrafficSourceType",
+      "display_name": "Traffic source",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "views",
+      "display_name": "Views",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "engagedViews",
+      "display_name": "Engaged views",
+      "type": "metric",
+      "required": false,
+      "transform": null
+    },
+    {
+      "api_name": "estimatedMinutesWatched",
+      "display_name": "Watch time (hours)",
+      "type": "metric",
+      "required": true,
+      "transform": "minutes_to_hours"
+    }
+  ]
+}

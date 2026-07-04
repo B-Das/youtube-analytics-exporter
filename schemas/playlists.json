@@ -1,0 +1,65 @@
+{
+  "id": "playlists",
+  "name": "Playlists",
+  "filename": "Playlists.csv",
+  "filters": "isCurated==1",
+  "sort": ["Playlist views DESC"],
+  "columns": [
+    {
+      "api_name": "playlist_title",
+      "display_name": "Playlist",
+      "type": "metadata",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "playlist",
+      "display_name": "Playlist ID",
+      "type": "dimension",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "playlistStarts",
+      "display_name": "Playlist starts",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "playlistViews",
+      "display_name": "Playlist views",
+      "type": "metric",
+      "required": true,
+      "transform": null
+    },
+    {
+      "api_name": "playlistEstimatedMinutesWatched",
+      "display_name": "Playlist watch time",
+      "type": "metric",
+      "required": true,
+      "transform": "minutes_to_hours"
+    },
+    {
+      "api_name": "playlistAverageViewDuration",
+      "display_name": "Average view duration",
+      "type": "metric",
+      "required": true,
+      "transform": "seconds_to_duration"
+    },
+    {
+      "api_name": "viewsPerPlaylistStart",
+      "display_name": "Views per playlist start",
+      "type": "metric",
+      "required": true,
+      "transform": "round_2"
+    },
+    {
+      "api_name": "averageTimeInPlaylist",
+      "display_name": "Average time in playlist",
+      "type": "metric",
+      "required": true,
+      "transform": "seconds_to_duration"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
+# LEGACY: This class is not used by the active SchemaExporter registry. Do not instantiate directly.
 import pandas as pd
-import datetime
 from exporters.base import BaseExporter
 
 class DailyMetricsExporter(BaseExporter):
@@ -14,62 +14,71 @@ class DailyMetricsExporter(BaseExporter):
 
     @property
     def filename(self) -> str:
-        return "daily_metrics.csv"
+        return "Daily Metrics.csv"
 
     @property
     def description(self) -> str:
-        return "Daily metrics breakdown for each video: Views, Watch time (hours), Subscribers, Average percentage viewed, CTR, stayed to watch."
+        return "Daily video metrics from the YouTube Analytics API."
 
     def export(
         self,
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None
+        data_service=None,
+        channel_id: str = None
     ) -> pd.DataFrame:
         if analytics_service is None:
             raise ValueError("YouTube API service is not connected.")
 
         try:
-            response = analytics_service.reports().query(
-                ids="channel==MINE",
-                startDate=start_date,
-                endDate=end_date,
-                metrics="views,redViews,estimatedMinutesWatched,subscribersGained,averageViewDuration,averageViewPercentage,likes,comments,shares",
+            df_raw = self.query_analytics(
+                analytics_service=analytics_service,
+                start_date=start_date,
+                end_date=end_date,
+                metrics=(
+                    "engagedViews,views,redViews,estimatedMinutesWatched,"
+                    "estimatedRedMinutesWatched,subscribersGained,subscribersLost,"
+                    "averageViewDuration,averageViewPercentage,likes,dislikes,comments,"
+                    "shares,videosAddedToPlaylists,videosRemovedFromPlaylists"
+                ),
                 dimensions="day,video",
-                sort="day",
-                maxResults=500
-            ).execute()
+                sort="day,video",
+                channel_id=channel_id
+            )
+            video_metadata = self.resolve_video_metadata(data_service, df_raw["video"].tolist())
 
-            rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=[
-                "day", "video_id", "views", "redViews", "estimatedMinutesWatched",
-                "subscribersGained", "averageViewDuration", "averageViewPercentage",
-                "likes", "comments", "shares"
-            ])
-            
             df = pd.DataFrame()
             df["Date"] = df_raw["day"]
-            df["Video"] = df_raw["video_id"]
+            df["Video"] = df_raw["video"].apply(
+                lambda x: video_metadata.get(x, {}).get("title", "")
+            )
+            df["Video ID"] = df_raw["video"]
             df["Views"] = df_raw["views"]
-            df["Engaged views"] = df_raw["redViews"]
+            df["Engaged views"] = df_raw["engagedViews"]
+            df["YouTube Premium views"] = df_raw["redViews"]
             df["Watch time (hours)"] = round(df_raw["estimatedMinutesWatched"] / 60.0, 2)
-            df["Subscribers"] = df_raw["subscribersGained"]
+            df["YouTube Premium watch time (hours)"] = round(df_raw["estimatedRedMinutesWatched"] / 60.0, 2)
+            df["Subscribers gained"] = df_raw["subscribersGained"]
+            df["Subscribers lost"] = df_raw["subscribersLost"]
             df["Average view duration"] = df_raw["averageViewDuration"].apply(
-                lambda x: str(datetime.timedelta(seconds=int(x)))
+                self.seconds_to_duration
             )
             df["Average percentage viewed"] = round(df_raw["averageViewPercentage"], 2)
             df["Likes"] = df_raw["likes"]
+            df["Dislikes"] = df_raw["dislikes"]
             df["Comments"] = df_raw["comments"]
             df["Shares"] = df_raw["shares"]
-            df["Impressions"] = "N/A (Studio Export Only)"
-            df["CTR"] = "N/A (Studio Export Only)"
-            df["Stayed to watch"] = "N/A (Studio Export Only)"
+            df["Videos added to playlists"] = df_raw["videosAddedToPlaylists"]
+            df["Videos removed from playlists"] = df_raw["videosRemovedFromPlaylists"]
             return df
         except Exception as e:
             print(f"Daily Metrics export error: {e}")
             return pd.DataFrame(columns=[
-                "Date", "Video", "Views", "Engaged views", "Watch time (hours)", "Subscribers",
-                "Average view duration", "Average percentage viewed", "Likes", "Comments",
-                "Shares", "Impressions", "CTR", "Stayed to watch"
+                "Date", "Video", "Video ID", "Views", "Engaged views", "YouTube Premium views",
+                "Watch time (hours)", "YouTube Premium watch time (hours)",
+                "Subscribers gained", "Subscribers lost",
+                "Average view duration", "Average percentage viewed", "Likes",
+                "Dislikes", "Comments", "Shares", "Videos added to playlists",
+                "Videos removed from playlists"
             ])

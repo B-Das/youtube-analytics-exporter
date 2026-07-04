@@ -1,5 +1,4 @@
 import pandas as pd
-import datetime
 from exporters.base import BaseExporter
 
 class DevicesExporter(BaseExporter):
@@ -14,43 +13,42 @@ class DevicesExporter(BaseExporter):
 
     @property
     def filename(self) -> str:
-        return "devices.csv"
+        return "Devices.csv"
 
     @property
     def description(self) -> str:
-        return "Hardware distribution metrics: Device type, Views, Watch time (hours), Average view duration."
+        return "Hardware distribution metrics by device type."
 
     def export(
         self,
         start_date: str,
         end_date: str,
         analytics_service=None,
-        data_service=None
+        data_service=None,
+        channel_id: str = None
     ) -> pd.DataFrame:
         if analytics_service is None:
             raise ValueError('YouTube API service is not connected.')
 
         try:
-            response = analytics_service.reports().query(
-                ids="channel==MINE",
-                startDate=start_date,
-                endDate=end_date,
-                metrics="views,estimatedMinutesWatched,averageViewDuration",
+            df_raw = self.query_analytics(
+                analytics_service=analytics_service,
+                start_date=start_date,
+                end_date=end_date,
+                metrics="engagedViews,views,estimatedMinutesWatched",
                 dimensions="deviceType",
-                sort="-views"
-            ).execute()
-
-            rows = response.get("rows", [])
-            df_raw = pd.DataFrame(rows, columns=["device", "views", "minutes", "duration"])
+                sort="-views",
+                channel_id=channel_id
+            )
             
             df = pd.DataFrame()
-            df["Device type"] = df_raw["device"]
+            df["Device type"] = df_raw["deviceType"]
             df["Views"] = df_raw["views"]
-            df["Watch time (hours)"] = round(df_raw["minutes"] / 60.0, 2)
-            df["Average view duration"] = df_raw["duration"].apply(
-                lambda x: str(datetime.timedelta(seconds=int(x)))
-            )
+            df["Engaged views"] = df_raw["engagedViews"]
+            df["Watch time (hours)"] = round(df_raw["estimatedMinutesWatched"] / 60.0, 2)
             return df
         except Exception as e:
             print(f"Devices export error: {e}")
-            return pd.DataFrame(columns=["Device type", "Views", "Watch time (hours)", "Average view duration"])
+            return pd.DataFrame(columns=[
+                "Device type", "Views", "Engaged views", "Watch time (hours)"
+            ])
