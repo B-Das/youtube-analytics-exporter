@@ -435,7 +435,15 @@ with st.expander("🔍 Selected Report Previews (Click to expand)", expanded=Fal
                             data_service
                         )
                     if df_preview is None or df_preview.empty:
-                        st.info(f"ℹ️ No records found for **{exp.name}** in date range ({str_start} to {str_end}).")
+                        yesterday = today - timedelta(days=1)
+                        if (d_start <= today <= d_end) or (d_start <= yesterday <= d_end):
+                            st.info(
+                                "No analytics data is currently available for the selected date range.\n\n"
+                                "YouTube Analytics API data is often delayed for Today and Yesterday.\n\n"
+                                "Try Last 7 Days or a custom range ending at least 2 days ago."
+                            )
+                        else:
+                            st.info(f"ℹ️ No records found for **{exp.name}** in date range ({str_start} to {str_end}).")
                     else:
                         st.caption(f"Showing preview of {len(df_preview):,} rows")
                         st.dataframe(df_preview, width="stretch")
