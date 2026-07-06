@@ -331,35 +331,62 @@ class YouTubeAuthHandler:
     @classmethod
     def get_auth_url(cls, redirect_uri: Optional[str] = None) -> Tuple[str, str]:
         """
-        Creates OAuth flow, generates authorization URL and saves PKCE code_verifier to disk.
+        Creates OAuth flow, generates authorization URL and saves PKCE code_verifier.
+
+        The verifier is stored in st.session_state (primary, works on cloud and local)
+        and also written to verifier.txt as a local-only fallback.
         """
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
         verifier = getattr(flow, "code_verifier", None)
         if verifier:
+            # Primary: store in session_state — survives OAuth redirect on both local and cloud
             try:
-                with open(cls.VERIFIER_FILE, "w") as f:
-                    f.write(verifier)
+                import streamlit as st
+                st.session_state["_oauth_code_verifier"] = verifier
             except Exception as e:
-                print(f"Could not save verifier file: {e}")
+                print(f"Could not save verifier to session_state: {e}")
+
+            # Fallback: also write to disk for local environments
+            if not cls._is_cloud_environment():
+                try:
+                    with open(cls.VERIFIER_FILE, "w") as f:
+                        f.write(verifier)
+                except Exception as e:
+                    print(f"Could not save verifier file: {e}")
+
         return auth_url, verifier
 
     @classmethod
     def exchange_code_for_credentials(cls, code: str, redirect_uri: Optional[str] = None):
         """
         Exchanges authorization code for credentials using preserved PKCE code_verifier.
+
+        Verifier lookup order:
+          1. st.session_state["_oauth_code_verifier"]  (cloud + local primary)
+          2. verifier.txt on disk                       (local fallback)
         """
         import os
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
 
         verifier = None
+
+        # 1. Primary: read from session_state (reliable on Streamlit Cloud)
         try:
-            if os.path.exists(cls.VERIFIER_FILE):
-                with open(cls.VERIFIER_FILE, "r") as f:
-                    verifier = f.read().strip()
+            import streamlit as st
+            verifier = st.session_state.get("_oauth_code_verifier")
         except Exception as e:
-            print(f"Could not read verifier file: {e}")
+            print(f"Could not read verifier from session_state: {e}")
+
+        # 2. Fallback: read from disk (local environments)
+        if not verifier:
+            try:
+                if os.path.exists(cls.VERIFIER_FILE):
+                    with open(cls.VERIFIER_FILE, "r") as f:
+                        verifier = f.read().strip()
+            except Exception as e:
+                print(f"Could not read verifier file: {e}")
 
         if verifier:
             flow.code_verifier = verifier
@@ -367,6 +394,12 @@ class YouTubeAuthHandler:
         flow.fetch_token(code=code)
         cls.save_credentials(flow.credentials)
 
+        # Clean up verifier from both storage locations
+        try:
+            import streamlit as st
+            st.session_state.pop("_oauth_code_verifier", None)
+        except Exception:
+            pass
         try:
             if os.path.exists(cls.VERIFIER_FILE):
                 os.remove(cls.VERIFIER_FILE)
