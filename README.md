@@ -2,7 +2,7 @@
 
 A fast, lightweight, and professional YouTube Analytics Export tool. It replaces manual YouTube Studio export steps with an automated, single-click ZIP downloader containing all relevant CSV report files and a structured `metadata.json` matching YouTube Studio columns.
 
-**Live Application:** [https://youtube-analytics-exporter-heq3jymvqjomfxeycxwrsf.streamlit.app/](https://youtube-analytics-exporter-heq3jymvqjomfxeycxwrsf.streamlit.app/)
+**Live Application:** [https://youtube-analytics-exporter.streamlit.app/](https://youtube-analytics-exporter.streamlit.app/)
 
 ---
 
