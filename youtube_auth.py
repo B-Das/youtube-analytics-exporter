@@ -2,7 +2,7 @@ import os
 import pickle
 import json
 import base64
-import secrets
+import urllib.parse
 from typing import List, Optional, Tuple
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
@@ -364,49 +364,71 @@ class YouTubeAuthHandler:
     @classmethod
     def get_auth_url(cls, redirect_uri: Optional[str] = None) -> Tuple[str, str]:
         """
-        Creates OAuth flow, generates authorization URL and encodes the PKCE
-        code_verifier into the OAuth `state` parameter.
+        Creates OAuth flow, generates authorization URL, and injects the PKCE
+        code_verifier into the OAuth `state` URL parameter.
 
-        CRITICAL: We generate the PKCE verifier OURSELVES before calling
-        authorization_url(), then pass it as code_verifier kwarg so
-        requests_oauthlib computes the S256 challenge from it and embeds it
-        in the auth URL. This lets us encode the verifier into `state` BEFORE
-        the URL is built — which is what makes it sleep-proof on Streamlit Cloud.
+        Strategy:
+          1. Let google_auth_oauthlib call authorization_url() normally.
+             The library (google-auth-oauthlib 1.x + requests-oauthlib 2.x)
+             auto-generates a PKCE code_verifier and embeds code_challenge in
+             the URL.
+          2. AFTER the URL is built, read the auto-generated code_verifier from
+             the flow object (it is set during authorization_url()).
+          3. Replace the `state` param in the URL with a base64-encoded payload
+             that contains the verifier. Google echoes `state` back verbatim in
+             the redirect URL, so the verifier is recoverable even if the app
+             woke from sleep and session_state was wiped.
 
-        If we instead read flow.code_verifier after authorization_url(), we
-        cannot retroactively change the state that's already in the URL.
-        If we read it before, it's always None (generated during URL build).
+        This avoids:
+          - Passing code_verifier to the /auth endpoint (causes 400 error).
+          - Reading flow.code_verifier BEFORE authorization_url() (always None).
+          - Double PKCE (we don't add our own code_challenge, the library does).
         """
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
 
-        # Generate PKCE verifier ourselves — RFC 7636 compliant (43-128 unreserved chars)
-        verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
-
-        # Embed verifier in state — Google echoes state back verbatim in redirect URL
-        # so we can recover the verifier even after app sleep/restart
-        state_value = cls._encode_state(verifier)
-
+        # Let the library build the URL and auto-generate the PKCE verifier
         auth_url, _ = flow.authorization_url(
             prompt="consent",
             access_type="offline",
-            state=state_value,
-            code_verifier=verifier,   # requests_oauthlib computes S256 challenge from this
         )
 
-        # Secondary: session_state (works if app did NOT restart between steps)
-        try:
-            import streamlit as st
-            st.session_state["_oauth_code_verifier"] = verifier
-        except Exception as e:
-            print(f"Could not save verifier to session_state: {e}")
+        # Read the auto-generated verifier — try every known attribute path
+        # across google-auth-oauthlib and requests-oauthlib versions
+        oauth2session = getattr(flow, "oauth2session", None)
+        verifier = (
+            getattr(flow, "code_verifier", None)
+            or getattr(oauth2session, "code_verifier", None)
+            or getattr(oauth2session, "_code_verifier", None)
+        )
 
-        # Local disk fallback
-        if not cls._is_cloud_environment():
+        if verifier:
+            # Inject verifier into the state param — Google echoes it back,
+            # so we can recover it on the callback even after app sleep/restart
+            state_with_verifier = cls._encode_state(verifier)
+            parsed = urllib.parse.urlparse(auth_url)
+            params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            params["state"] = [state_with_verifier]
+            new_query = urllib.parse.urlencode(params, doseq=True)
+            auth_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+            print(f"[auth] PKCE verifier captured ({len(verifier)} chars), injected into state")
+
+            # Secondary: session_state (same-session shortcut)
             try:
-                with open(cls.VERIFIER_FILE, "w") as f:
-                    f.write(verifier)
+                import streamlit as st
+                st.session_state["_oauth_code_verifier"] = verifier
             except Exception as e:
-                print(f"Could not save verifier file: {e}")
+                print(f"Could not save verifier to session_state: {e}")
+
+            # Local disk fallback
+            if not cls._is_cloud_environment():
+                try:
+                    with open(cls.VERIFIER_FILE, "w") as f:
+                        f.write(verifier)
+                except Exception as e:
+                    print(f"Could not save verifier file: {e}")
+        else:
+            print("[auth] No PKCE verifier found — PKCE may not be active for this flow")
 
         return auth_url, verifier
 
