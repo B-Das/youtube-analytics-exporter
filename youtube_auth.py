@@ -2,6 +2,7 @@ import os
 import pickle
 import json
 import base64
+import secrets
 from typing import List, Optional, Tuple
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
@@ -366,41 +367,46 @@ class YouTubeAuthHandler:
         Creates OAuth flow, generates authorization URL and encodes the PKCE
         code_verifier into the OAuth `state` parameter.
 
-        Strategy: embed verifier in `state` (echoed back by Google in the redirect
-        URL) so it is always recoverable even if the Streamlit Cloud app woke up
-        from sleep and has a fresh session_state.
+        CRITICAL: We generate the PKCE verifier OURSELVES before calling
+        authorization_url(), then pass it as code_verifier kwarg so
+        requests_oauthlib computes the S256 challenge from it and embeds it
+        in the auth URL. This lets us encode the verifier into `state` BEFORE
+        the URL is built — which is what makes it sleep-proof on Streamlit Cloud.
 
-        Session_state is still used as a secondary/backup store for the local
-        environment to avoid disk I/O.
+        If we instead read flow.code_verifier after authorization_url(), we
+        cannot retroactively change the state that's already in the URL.
+        If we read it before, it's always None (generated during URL build).
         """
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
 
-        verifier = getattr(flow, "code_verifier", None)
+        # Generate PKCE verifier ourselves — RFC 7636 compliant (43-128 unreserved chars)
+        verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
 
-        # Encode verifier into state so Google echoes it back — sleep-proof
-        state_value = cls._encode_state(verifier) if verifier else None
+        # Embed verifier in state — Google echoes state back verbatim in redirect URL
+        # so we can recover the verifier even after app sleep/restart
+        state_value = cls._encode_state(verifier)
 
         auth_url, _ = flow.authorization_url(
             prompt="consent",
             access_type="offline",
             state=state_value,
+            code_verifier=verifier,   # requests_oauthlib computes S256 challenge from this
         )
 
-        if verifier:
-            # Secondary: also store in session_state for same-session reads
-            try:
-                import streamlit as st
-                st.session_state["_oauth_code_verifier"] = verifier
-            except Exception as e:
-                print(f"Could not save verifier to session_state: {e}")
+        # Secondary: session_state (works if app did NOT restart between steps)
+        try:
+            import streamlit as st
+            st.session_state["_oauth_code_verifier"] = verifier
+        except Exception as e:
+            print(f"Could not save verifier to session_state: {e}")
 
-            # Local fallback: also write to disk
-            if not cls._is_cloud_environment():
-                try:
-                    with open(cls.VERIFIER_FILE, "w") as f:
-                        f.write(verifier)
-                except Exception as e:
-                    print(f"Could not save verifier file: {e}")
+        # Local disk fallback
+        if not cls._is_cloud_environment():
+            try:
+                with open(cls.VERIFIER_FILE, "w") as f:
+                    f.write(verifier)
+            except Exception as e:
+                print(f"Could not save verifier file: {e}")
 
         return auth_url, verifier
 
