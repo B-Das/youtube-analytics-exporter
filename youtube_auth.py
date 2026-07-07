@@ -1,5 +1,7 @@
 import os
 import pickle
+import json
+import base64
 from typing import List, Optional, Tuple
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
@@ -329,26 +331,70 @@ class YouTubeAuthHandler:
         return flow
 
     @classmethod
+    def _encode_state(cls, verifier: str) -> str:
+        """
+        Encodes the PKCE code_verifier into the OAuth state parameter.
+
+        The state payload is base64url-encoded JSON so Google will echo it back
+        verbatim in the redirect URL query string. This means the verifier
+        survives Streamlit Cloud app sleep / process restarts without needing
+        session_state to persist across the OAuth redirect.
+        """
+        payload = json.dumps({"cv": verifier})
+        encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+        return encoded
+
+    @classmethod
+    def _decode_state(cls, state: str) -> Optional[str]:
+        """
+        Decodes the verifier from the OAuth state parameter echoed back by Google.
+        Returns None if decoding fails (e.g. state was not set by this app).
+        """
+        try:
+            # Restore base64 padding
+            padding = 4 - len(state) % 4
+            if padding != 4:
+                state += "=" * padding
+            payload = json.loads(base64.urlsafe_b64decode(state).decode())
+            return payload.get("cv")
+        except Exception:
+            return None
+
+    @classmethod
     def get_auth_url(cls, redirect_uri: Optional[str] = None) -> Tuple[str, str]:
         """
-        Creates OAuth flow, generates authorization URL and saves PKCE code_verifier.
+        Creates OAuth flow, generates authorization URL and encodes the PKCE
+        code_verifier into the OAuth `state` parameter.
 
-        The verifier is stored in st.session_state (primary, works on cloud and local)
-        and also written to verifier.txt as a local-only fallback.
+        Strategy: embed verifier in `state` (echoed back by Google in the redirect
+        URL) so it is always recoverable even if the Streamlit Cloud app woke up
+        from sleep and has a fresh session_state.
+
+        Session_state is still used as a secondary/backup store for the local
+        environment to avoid disk I/O.
         """
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
-        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
         verifier = getattr(flow, "code_verifier", None)
+
+        # Encode verifier into state so Google echoes it back — sleep-proof
+        state_value = cls._encode_state(verifier) if verifier else None
+
+        auth_url, _ = flow.authorization_url(
+            prompt="consent",
+            access_type="offline",
+            state=state_value,
+        )
+
         if verifier:
-            # Primary: store in session_state — survives OAuth redirect on both local and cloud
+            # Secondary: also store in session_state for same-session reads
             try:
                 import streamlit as st
                 st.session_state["_oauth_code_verifier"] = verifier
             except Exception as e:
                 print(f"Could not save verifier to session_state: {e}")
 
-            # Fallback: also write to disk for local environments
+            # Local fallback: also write to disk
             if not cls._is_cloud_environment():
                 try:
                     with open(cls.VERIFIER_FILE, "w") as f:
@@ -359,42 +405,61 @@ class YouTubeAuthHandler:
         return auth_url, verifier
 
     @classmethod
-    def exchange_code_for_credentials(cls, code: str, redirect_uri: Optional[str] = None):
+    def exchange_code_for_credentials(
+        cls,
+        code: str,
+        redirect_uri: Optional[str] = None,
+        state: Optional[str] = None,
+    ):
         """
-        Exchanges authorization code for credentials using preserved PKCE code_verifier.
+        Exchanges authorization code for credentials using PKCE code_verifier.
 
-        Verifier lookup order:
-          1. st.session_state["_oauth_code_verifier"]  (cloud + local primary)
-          2. verifier.txt on disk                       (local fallback)
+        Verifier lookup order (most-to-least reliable on Streamlit Cloud):
+          1. state parameter (echoed by Google in redirect URL — sleep-proof ✅)
+          2. st.session_state["_oauth_code_verifier"]  (same-session shortcut)
+          3. verifier.txt on disk                       (local-only fallback)
         """
-        import os
         flow = cls.create_oauth_flow(redirect_uri=redirect_uri)
 
         verifier = None
 
-        # 1. Primary: read from session_state (reliable on Streamlit Cloud)
-        try:
-            import streamlit as st
-            verifier = st.session_state.get("_oauth_code_verifier")
-        except Exception as e:
-            print(f"Could not read verifier from session_state: {e}")
+        # 1. Primary: decode from OAuth state echoed back by Google — always works
+        #    even after app sleep/restart because it comes from the URL itself.
+        if state:
+            verifier = cls._decode_state(state)
+            if verifier:
+                print("[auth] code_verifier recovered from OAuth state parameter")
 
-        # 2. Fallback: read from disk (local environments)
+        # 2. Same-session shortcut: session_state (works if app didn't restart)
+        if not verifier:
+            try:
+                import streamlit as st
+                verifier = st.session_state.get("_oauth_code_verifier")
+                if verifier:
+                    print("[auth] code_verifier recovered from session_state")
+            except Exception as e:
+                print(f"Could not read verifier from session_state: {e}")
+
+        # 3. Local-only disk fallback
         if not verifier:
             try:
                 if os.path.exists(cls.VERIFIER_FILE):
                     with open(cls.VERIFIER_FILE, "r") as f:
                         verifier = f.read().strip()
+                    if verifier:
+                        print("[auth] code_verifier recovered from verifier.txt")
             except Exception as e:
                 print(f"Could not read verifier file: {e}")
 
         if verifier:
             flow.code_verifier = verifier
+        else:
+            print("[auth] WARNING: no code_verifier found — token exchange may fail")
 
         flow.fetch_token(code=code)
         cls.save_credentials(flow.credentials)
 
-        # Clean up verifier from both storage locations
+        # Clean up verifier from secondary storage locations
         try:
             import streamlit as st
             st.session_state.pop("_oauth_code_verifier", None)

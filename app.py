@@ -115,9 +115,17 @@ st.markdown("""
 # OAuth Callback handling
 if "code" in st.query_params:
     auth_code = st.query_params["code"]
+    # Google echoes back the `state` param we embedded the code_verifier in.
+    # Passing it here makes auth work even if the app woke from sleep and
+    # session_state was wiped (Streamlit Cloud free tier behaviour).
+    oauth_state = st.query_params.get("state", None)
     try:
         redirect_uri = YouTubeAuthHandler.get_redirect_uri()
-        YouTubeAuthHandler.exchange_code_for_credentials(code=auth_code, redirect_uri=redirect_uri)
+        YouTubeAuthHandler.exchange_code_for_credentials(
+            code=auth_code,
+            redirect_uri=redirect_uri,
+            state=oauth_state,
+        )
         st.query_params.clear()
         st.success("🎉 Authentication successful!")
         st.rerun()
