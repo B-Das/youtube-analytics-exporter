@@ -1,11 +1,8 @@
 import os
-import importlib
 import pandas as pd
 import streamlit as st
 from datetime import datetime, timedelta
 
-import youtube_auth
-importlib.reload(youtube_auth)
 from youtube_auth import YouTubeAuthHandler
 
 from exporters.registry import get_all_exporters, get_exporter_by_id
@@ -14,14 +11,7 @@ from engine.schema_validator import validate_all_schemas, SchemaValidationError
 
 SCHEMA_DIR = os.path.join(os.path.dirname(__file__), "schemas")
 
-# Validate schemas on startup
-try:
-    VALIDATED_SCHEMAS = validate_all_schemas(SCHEMA_DIR)
-except SchemaValidationError as sve:
-    st.error(f"⚠️ Startup Schema Validation Error: {sve}")
-    st.stop()
-
-# Streamlit Page Configuration
+# Streamlit Page Configuration — must be the FIRST Streamlit command
 st.set_page_config(
     page_title="YouTube Studio Exporter",
     page_icon="⚡",
@@ -112,6 +102,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Validate schemas on startup — runs after page config so any errors render in the UI
+try:
+    VALIDATED_SCHEMAS = validate_all_schemas(SCHEMA_DIR)
+except SchemaValidationError as sve:
+    st.error(f"⚠️ Startup Schema Validation Error: {sve}")
+    st.stop()
+
 # OAuth Callback handling
 if "code" in st.query_params:
     auth_code = st.query_params["code"]
@@ -134,12 +131,15 @@ if "code" in st.query_params:
         st.query_params.clear()
 
 # Retrieve authentication status and services
-analytics_service, data_service, is_authenticated = YouTubeAuthHandler.get_services()
+# Spinner gives immediate visual feedback instead of a blank screen
+with st.spinner("Connecting to YouTube APIs…"):
+    analytics_service, data_service, is_authenticated = YouTubeAuthHandler.get_services()
 channel_info = None
 available_channels = []
 
 if is_authenticated:
-    available_channels = YouTubeAuthHandler.get_channels(data_service)
+    with st.spinner("Loading channel info…"):
+        available_channels = YouTubeAuthHandler.get_channels(data_service)
     available_channel_ids = {ch["id"] for ch in available_channels}
     selected_channel_id = st.session_state.get("selected_channel_id")
 
