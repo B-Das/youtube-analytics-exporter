@@ -107,6 +107,28 @@ class BaseExporter(ABC):
 
         raise last_error
 
+    # Maximum days per API request chunk.
+    # YouTube Analytics API returns HTTP 500 on startIndex-based pagination
+    # for large date ranges (a known Google API limitation). Keeping each
+    # chunk <=180 days guarantees the response stays under 200 rows for
+    # day-dimension queries, so no offset pagination is ever needed.
+    _CHUNK_DAYS = 180
+
+    def _date_chunks(self, start_date: str, end_date: str):
+        """
+        Split [start_date, end_date] into _CHUNK_DAYS-sized windows.
+        Yields (chunk_start, chunk_end) pairs as 'YYYY-MM-DD' strings.
+        """
+        d1 = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        d2 = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+        chunk_delta = datetime.timedelta(days=self._CHUNK_DAYS - 1)
+        step = datetime.timedelta(days=self._CHUNK_DAYS)
+        current = d1
+        while current <= d2:
+            chunk_end = min(current + chunk_delta, d2)
+            yield current.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")
+            current += step
+
     def query_analytics(
         self,
         analytics_service,
@@ -119,66 +141,83 @@ class BaseExporter(ABC):
         filters: str = None,
         channel_id: str = None
     ) -> pd.DataFrame:
-        """Run a reports.query request and return rows using API header names."""
-        request_args = {
+        """
+        Run a reports.query request and return rows using API header names.
+
+        Uses date-chunking instead of startIndex pagination because YouTube
+        Analytics API returns HTTP 500 when startIndex > 200 (known limitation).
+        The date range is split into _CHUNK_DAYS windows so each request always
+        fits within one page. Only applied for day/month-dimensioned queries
+        where row count scales with the date range.
+        """
+        # Only chunk for time-series queries where rows scale with date range
+        day_dimensions = {"day", "month", "7DayTotals", "30DayTotals"}
+        dim_set = set(dimensions.split(",")) if dimensions else set()
+        needs_chunking = bool(dim_set & day_dimensions)
+
+        base_args = {
             "ids": f"channel=={channel_id}" if channel_id else "channel==MINE",
-            "startDate": start_date,
-            "endDate": end_date,
             "metrics": metrics
         }
         if dimensions:
-            request_args["dimensions"] = dimensions
+            base_args["dimensions"] = dimensions
         if sort:
-            request_args["sort"] = sort
+            base_args["sort"] = sort
         if filters:
-            request_args["filters"] = filters
+            base_args["filters"] = filters
 
         started_at = time.perf_counter()
-        try:
-            page_size = max_results or 200
-            start_index = 1
-            columns = []
-            rows = []
+        columns = []
+        all_rows = []
 
-            while True:
-                page_args = {
-                    **request_args,
-                    "maxResults": page_size,
-                    "startIndex": start_index
+        try:
+            chunks = (
+                list(self._date_chunks(start_date, end_date))
+                if needs_chunking
+                else [(start_date, end_date)]
+            )
+
+            for chunk_start, chunk_end in chunks:
+                request_args = {
+                    **base_args,
+                    "startDate": chunk_start,
+                    "endDate": chunk_end,
+                    "maxResults": max_results or 200,
+                    "startIndex": 1,
                 }
                 response = self._execute_with_retry(
-                    lambda pa=page_args: analytics_service.reports().query(**pa).execute()
+                    lambda pa=request_args: analytics_service.reports().query(**pa).execute()
                 )
                 if not columns:
                     columns = [
                         header["name"] for header in response.get("columnHeaders", [])
                     ]
                 page_rows = response.get("rows", [])
-                rows.extend(page_rows)
-                if len(page_rows) < page_size:
-                    break
-                start_index += page_size
+                all_rows.extend(page_rows)
 
             self.last_query_details = {
                 "API endpoint": "youtubeAnalytics.reports.query",
                 "Metrics requested": metrics,
                 "Dimensions requested": dimensions or "",
-                "Rows returned": len(rows),
+                "Rows returned": len(all_rows),
+                "Chunks fetched": len(chunks),
                 "API execution time (ms)": round((time.perf_counter() - started_at) * 1000, 2),
                 "Status": "Success"
             }
-            return pd.DataFrame(rows, columns=columns)
+            return pd.DataFrame(all_rows, columns=columns) if columns else pd.DataFrame()
+
         except Exception as error:
             self.last_query_details = {
                 "API endpoint": "youtubeAnalytics.reports.query",
                 "Metrics requested": metrics,
                 "Dimensions requested": dimensions or "",
-                "Rows returned": 0,
+                "Rows returned": len(all_rows),
                 "API execution time (ms)": round((time.perf_counter() - started_at) * 1000, 2),
                 "Status": "Failed",
                 "Error": str(error)
             }
             raise
+
 
     def api_error_summary(self, error) -> str:
         """Return a human-readable error message for common YouTube API errors."""
