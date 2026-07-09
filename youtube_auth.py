@@ -137,7 +137,7 @@ class YouTubeAuthHandler:
 
         try:
             from googleapiclient.discovery import build
-            analytics = build('youtubeAnalytics', 'v2', credentials=creds, static_discovery=True)
+            analytics = build('youtubeAnalytics', 'v2', credentials=creds, static_discovery=False)
             data = build('youtube', 'v3', credentials=creds, static_discovery=True)
             return analytics, data, True
         except Exception as e:
